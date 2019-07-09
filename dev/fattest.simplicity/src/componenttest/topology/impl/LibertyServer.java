@@ -5586,7 +5586,8 @@ public class LibertyServer implements LogMonitorClient {
         String appInDropinsPath = serverRoot + "/dropins/" + appFileName;
         String nonDropinsFilePath = serverRoot + "/" + appFileName;
 
-        if (!LibertyFileManager.renameLibertyFile(machine, appInDropinsPath, nonDropinsFilePath)) { // throws Exception
+        boolean successfullyRenamedFile = attemptFileRenameWithRetries(appInDropinsPath, nonDropinsFilePath);
+        if (!successfullyRenamedFile) { // throws Exception
             Log.info(c, method, "Unable to move " + appFileName + " out of dropins, failing.");
             return false;
         } else {
@@ -5600,6 +5601,23 @@ public class LibertyServer implements LogMonitorClient {
         }
 
         return true;
+    }
+
+    private boolean attemptFileRenameWithRetries(String sourcePath, String destinationPath) throws InterruptedException {
+        boolean successfullyRenamedFile = false;
+        for (int currentTry = 1; currentTry <= 3; currentTry++) {
+            // For every retry, sleep an extra 2 seconds just in case there's a file locking issue
+            Thread.sleep(2 * (currentTry - 1) * 1000);
+            try {
+                successfullyRenamedFile = LibertyFileManager.renameLibertyFile(machine, sourcePath, destinationPath);
+                if (successfullyRenamedFile) {
+                    break;
+                }
+            } catch (Exception e) {
+                Log.info(c, "attemptFileRenameWithRetries", "Caught exception trying to rename Liberty file: " + e);
+            }
+        }
+        return successfullyRenamedFile;
     }
 
     /**

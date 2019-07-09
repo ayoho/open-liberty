@@ -769,7 +769,9 @@ public class RemoteFile {
 
     private boolean basicRename(RemoteFile newFile) throws Exception {
         if ( host.isLocal() ) {
-            return localFile.renameTo(new File(newFile.getAbsolutePath()));
+            Path newFilePath = (new File(newFile.getAbsolutePath())).toPath();
+            Path afterMovePath = Files.move(localFile.toPath(), newFilePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return (newFilePath.equals(afterMovePath));
         } else {
             return providerRename(newFile);
         }
