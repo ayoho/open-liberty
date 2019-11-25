@@ -46,7 +46,7 @@ public class OAuthLoginFlow {
     TAIResult handleOAuthRequest(HttpServletRequest request, HttpServletResponse response, SocialLoginConfig clientConfig) throws WebTrustAssociationFailedException {
         if (SocialUtil.useAccessTokenFromRequest(clientConfig)) {
             TAIResult result = handleAccessTokenFlow(request, response, clientConfig);
-            if (result != null && clientConfig.isAccessTokenRequired()) {
+            if (shouldTaiResultFromProcessingAccessTokenBeReturned(clientConfig, result)) {
                 return result;
             }
         }
@@ -101,6 +101,19 @@ public class OAuthLoginFlow {
 
     private boolean requestShouldHaveToken(SocialLoginConfig clientConfig) {
         return clientConfig.isAccessTokenRequired();
+    }
+
+    boolean shouldTaiResultFromProcessingAccessTokenBeReturned(SocialLoginConfig clientConfig, TAIResult result) {
+        if (result == null) {
+            return false;
+        }
+        if (result.getStatus() == HttpServletResponse.SC_OK) {
+            // If the access token was successfully processed, return the successful result
+            return true;
+        } else {
+            // If processing the access token was unsuccessful, only return the TAI result if an access token was required in the request
+            return clientConfig.isAccessTokenRequired();
+        }
     }
 
     @FFDCIgnore(SocialLoginException.class)
