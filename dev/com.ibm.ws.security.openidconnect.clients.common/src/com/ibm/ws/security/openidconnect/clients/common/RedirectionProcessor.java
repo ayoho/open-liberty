@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2018 IBM Corporation and others.
+ * Copyright (c) 2018, 2020 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,6 +27,9 @@ import com.ibm.ws.webcontainer.security.CookieHelper;
  * Processes the End-User redirection to the Client by the OP.
  */
 public class RedirectionProcessor {
+
+    private static TraceComponent tcClientsCommonBundle = Tr.register(RedirectionProcessor.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
+    private static TraceComponent tcClientBundle = Tr.register(RedirectionProcessor.class, TraceConstants.TRACE_GROUP, "com.ibm.ws.security.openidconnect.client.internal.resources.OidcClientMessages");
 
     private final HttpServletRequest request;
     private final HttpServletResponse response;
@@ -113,7 +116,7 @@ public class RedirectionProcessor {
         String requestUrl = getOriginalRequestUrl(state);
 
         if (requestUrl == null || requestUrl.isEmpty()) {
-            String errorMsg = Tr.formatMessage(tc, "OIDC_CLIENT_BAD_REQUEST_NO_COOKIE", request.getRequestURL()); // CWWKS1750E
+            String errorMsg = Tr.formatMessage(tcClientBundle, "OIDC_CLIENT_BAD_REQUEST_NO_COOKIE", request.getRequestURL()); // CWWKS1750E
             Tr.error(tc, errorMsg);
             response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             return;
