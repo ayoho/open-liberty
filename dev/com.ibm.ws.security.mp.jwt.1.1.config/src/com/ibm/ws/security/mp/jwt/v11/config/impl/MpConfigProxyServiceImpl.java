@@ -36,7 +36,8 @@ public class MpConfigProxyServiceImpl implements MpConfigProxyService {
     public static final TraceComponent tc = Tr.register(MpConfigProxyServiceImpl.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
 
     static private String MP_VERSION = "1.1";
-    static private Set<String> ACCEPTABLE_MP_CONFIG_PROPERTY_NAMES = new HashSet<String>();
+
+    public static Set<String> ACCEPTABLE_MP_CONFIG_PROPERTY_NAMES = new HashSet<String>();
     static {
         ACCEPTABLE_MP_CONFIG_PROPERTY_NAMES.add(MpConstants.ISSUER);
         ACCEPTABLE_MP_CONFIG_PROPERTY_NAMES.add(MpConstants.PUBLIC_KEY);

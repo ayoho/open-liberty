@@ -20,6 +20,7 @@ Subsystem-Name: MicroProfile JSON Web Token 1.2
   com.ibm.ws.security.mp.jwt.cdi,\
   com.ibm.ws.org.apache.commons.codec.1.4, \
   com.ibm.ws.org.apache.commons.logging.1.0.3, \
-  io.openliberty.security.mp.jwt.1.2.config
+  io.openliberty.security.mp.jwt.1.2.config, \
+  com.ibm.ws.security.mp.jwt.1.1.config
 kind=noship
 edition=core
