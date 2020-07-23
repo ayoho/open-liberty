@@ -31,7 +31,8 @@ Export-Package: \
    com.ibm.ws.security.mp.jwt, \
    com.ibm.ws.security.mp.jwt.impl, \
    com.ibm.ws.security.mp.jwt.error, \
-   com.ibm.ws.security.mp.jwt.tai
+   com.ibm.ws.security.mp.jwt.tai, \
+   io.openliberty.security.mp.jwt.osgi
 
 
 Import-Package: \
