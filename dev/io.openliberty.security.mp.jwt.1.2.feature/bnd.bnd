@@ -1,0 +1,29 @@
+#*******************************************************************************
+# Copyright (c) 2020 IBM Corporation and others.
+# All rights reserved. This program and the accompanying materials
+# are made available under the terms of the Eclipse Public License v1.0
+# which accompanies this distribution, and is available at
+# http://www.eclipse.org/legal/epl-v10.html
+#
+# Contributors:
+#     IBM Corporation - initial API and implementation
+#*******************************************************************************
+-include= ~../cnf/resources/bnd/bundle.props
+bVersion=1.0
+
+Bundle-Name: MP JWT 1.2
+Bundle-SymbolicName: io.openliberty.security.mp.jwt.1.2.feature
+Bundle-Description: MP JWT 1.2 infrastructure, version ${bVersion}
+
+WS-TraceGroup: MPJWT
+
+Private-Package: io.openliberty.security.mp.jwt.osgi.v12
+  
+-dsannotations: io.openliberty.security.mp.jwt.osgi.v12.MpJwt12Runtime
+
+-buildpath: \
+	com.ibm.websphere.org.osgi.core,\
+	com.ibm.wsspi.org.osgi.service.component.annotations;version=latest,\
+	com.ibm.ws.security.mp.jwt;version=latest,\
+	com.ibm.websphere.appserver.spi.logging,\
+	com.ibm.ws.org.osgi.annotation.versioning;version=latest
