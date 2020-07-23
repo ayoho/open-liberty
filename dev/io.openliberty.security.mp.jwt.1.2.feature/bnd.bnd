@@ -26,4 +26,5 @@ Private-Package: io.openliberty.security.mp.jwt.osgi.v12
 	com.ibm.wsspi.org.osgi.service.component.annotations;version=latest,\
 	com.ibm.ws.security.mp.jwt;version=latest,\
 	com.ibm.websphere.appserver.spi.logging,\
+	com.ibm.ws.logging.core;version=latest,\
 	com.ibm.ws.org.osgi.annotation.versioning;version=latest

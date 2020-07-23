@@ -13,12 +13,9 @@ package io.openliberty.security.mp.jwt.osgi.v12;
 import org.osgi.framework.Version;
 import org.osgi.service.component.annotations.Component;
 
-import com.ibm.websphere.ras.annotation.Trivial;
-
 import io.openliberty.security.mp.jwt.osgi.MpJwtRuntimeVersion;
 
-@Trivial
-@Component(property = { "version=1.2", "service.ranking:Integer=12" })
+@Component(service = MpJwtRuntimeVersion.class, immediate = true, property = { "version=1.2", "service.ranking:Integer=12" }, name = "mpJwtRuntimeVersionService")
 public class MpJwt12Runtime implements MpJwtRuntimeVersion {
 
     @Override
