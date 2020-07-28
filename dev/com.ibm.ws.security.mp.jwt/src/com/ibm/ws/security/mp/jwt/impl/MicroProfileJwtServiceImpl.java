@@ -98,7 +98,7 @@ public class MicroProfileJwtServiceImpl implements MicroProfileJwtService {
         keyStoreServiceRef.unsetReference(ref);
     }
 
-    @Reference(service = MpJwtRuntimeVersion.class, name = KEY_MP_JWT_RUNTIME_VERSION_SERVICE, cardinality = ReferenceCardinality.OPTIONAL, policy = ReferencePolicy.DYNAMIC, policyOption = ReferencePolicyOption.GREEDY)
+    @Reference(service = MpJwtRuntimeVersion.class, name = KEY_MP_JWT_RUNTIME_VERSION_SERVICE, cardinality = ReferenceCardinality.MANDATORY, policy = ReferencePolicy.DYNAMIC, policyOption = ReferencePolicyOption.GREEDY)
     protected void setMpJwtRuntimeVersion(ServiceReference<MpJwtRuntimeVersion> reference) {
         mpJwtRuntimeVersionServiceRef.setReference(reference);
     }
@@ -126,6 +126,7 @@ public class MicroProfileJwtServiceImpl implements MicroProfileJwtService {
     protected void deactivate(ComponentContext cc) {
         sslSupportRef.deactivate(cc);
         keyStoreServiceRef.deactivate(cc);
+        mpJwtRuntimeVersionServiceRef.deactivate(cc);
         Tr.info(tc, "MPJWT_CONFIG_DEACTIVATED", uniqueId);
     }
 

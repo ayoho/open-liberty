@@ -30,7 +30,7 @@ import com.ibm.ws.security.mp.jwt.MpConfigProxyService;
 import com.ibm.ws.security.mp.jwt.config.MpConstants;
 import com.ibm.ws.security.mp.jwt.v11.config.TraceConstants;
 
-@Component(service = MpConfigProxyService.class, immediate = true, configurationPolicy = ConfigurationPolicy.IGNORE, property = { "service.vendor=IBM", "version=1.1" }, name = "mpConfigProxyService")
+@Component(service = MpConfigProxyService.class, immediate = true, configurationPolicy = ConfigurationPolicy.IGNORE, property = { "service.vendor=IBM", "version=1.1", "service.ranking:Integer=11" }, name = "mpConfigProxyService")
 public class MpConfigProxyServiceImpl implements MpConfigProxyService {
 
     public static final TraceComponent tc = Tr.register(MpConfigProxyServiceImpl.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
@@ -86,7 +86,7 @@ public class MpConfigProxyServiceImpl implements MpConfigProxyService {
         return null;
     }
 
-    private boolean isAcceptableMpConfigProperty(String propertyName) {
+    protected boolean isAcceptableMpConfigProperty(String propertyName) {
         return ACCEPTABLE_MP_CONFIG_PROPERTY_NAMES.contains(propertyName);
     }
 

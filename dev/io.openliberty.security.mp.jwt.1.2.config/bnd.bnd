@@ -25,7 +25,8 @@ WS-TraceGroup: \
 
 Export-Package: \
    io.openliberty.security.mp.jwt.v12.config, \
-   io.openliberty.security.mp.jwt.v12.config.impl
+   io.openliberty.security.mp.jwt.v12.config.impl, \
+   io.openliberty.security.mp.jwt.osgi.v12
 
 Import-Package: \
    !io.openliberty.security.mp.jwt.v12.config.impl, \
@@ -37,7 +38,8 @@ Import-Package: \
 Private-Package: \
     io.openliberty.security.mp.jwt.v12.config.resources.*,
     
--dsannotations: io.openliberty.security.mp.jwt.v12.config.impl.MpConfigProxyServiceImpl
+-dsannotations: io.openliberty.security.mp.jwt.v12.config.impl.MpConfigProxyServiceImpl, \
+    io.openliberty.security.mp.jwt.osgi.v12.MpJwt12Runtime
 
 -dsannotations-inherit = true
 
