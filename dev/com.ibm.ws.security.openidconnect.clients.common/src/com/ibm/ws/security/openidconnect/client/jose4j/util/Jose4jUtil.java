@@ -56,6 +56,7 @@ public class Jose4jUtil {
     private static final TraceComponent tc = Tr.register(Jose4jUtil.class, TraceConstants.TRACE_GROUP, TraceConstants.MESSAGE_BUNDLE);
     private static final String SIGNATURE_ALG_HS256 = "HS256";
     private static final String SIGNATURE_ALG_RS256 = "RS256";
+    private static final String SIGNATURE_ALG_ES256 = "ES256";
     private static final String SIGNATURE_ALG_NONE = "none";
     private final SSLSupport sslSupport;
     private static final JtiNonceCache jtiCache = new JtiNonceCache(); // Jose4jUil has only one instance
@@ -360,6 +361,8 @@ public class Jose4jUtil {
             } else {
                 keyValue = clientConfig.getPublicKey();
             }
+        } else if (SIGNATURE_ALG_ES256.equals(signatureAlgorithm)) {
+            keyValue = getVerifyKeyForES256(clientConfig, kid, x5t);
         } else if (SIGNATURE_ALG_NONE.equals(signatureAlgorithm)) {
             keyValue = new HmacKey(clientConfig.getSharedKey().getBytes(ClientConstants.CHARSET)); // TODO: need to look at the token to figure out which key to get from config
             // TODO : getAlgFromToken(tokenStr);
@@ -373,6 +376,11 @@ public class Jose4jUtil {
             retriever = new JwKRetriever(oidcClientConfig.getId(), oidcClientConfig.getSslRef(), oidcClientConfig.getJwkEndpointUrl(), oidcClientConfig.getJwkSet(), this.sslSupport, oidcClientConfig.isHostNameVerificationEnabled(), oidcClientConfig.getJwkClientId(), oidcClientConfig.getJwkClientSecret());
         }
         return retriever;
+    }
+
+    Key getVerifyKeyForES256(ConvergedClientConfig clientConfig, String kid, String x5t) {
+        // TODO
+        return null;
     }
 
     protected ProviderAuthenticationResult createProviderAuthenticationResult(JSONObject jobj, ConvergedClientConfig clientConfig, String accessToken) {
