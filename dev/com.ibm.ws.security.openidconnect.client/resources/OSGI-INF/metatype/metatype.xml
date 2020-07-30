@@ -38,14 +38,14 @@
          <!-- following lines are supposed to make sure ssl is fully activated before we are --> 
          <AD id="SSLSupport.cardinality.minimum" name="internal" description="internal use only" type="String" default="${count(sslRef)}"/>
          <AD id="SSLSupport.target" name="internal" description="internal use only"  type="String" default="(repertoirePIDs=${sslRef})"/>  
-         
-         
+
          <AD id="signatureAlgorithm" required="false" type="String" name="%signatureAlgorithm" description="%signatureAlgorithm.desc" default="HS256">
-            	<Option label="%tokenSignAlgorithm.NONE" value="none" />
-            	<Option label="%tokenSignAlgorithm.RS256" value="RS256" />
-            	<Option label="%tokenSignAlgorithm.HS256" value="HS256" />
+             <Option label="%tokenSignAlgorithm.NONE" value="none" />
+             <Option label="%tokenSignAlgorithm.RS256" value="RS256" />
+             <Option label="%tokenSignAlgorithm.HS256" value="HS256" />
+             <Option label="internal" value="ES256" />
          </AD>
-  		 
+
   		 <AD id="includeIdTokenInSubject" name="%includeIdTokenInSubject" description="%includeIdTokenInSubject.desc"  required="false" type="Boolean" default="true"/>
   		 <AD id="accessTokenInLtpaCookie" name="%accessTokenInLtpaCookie" description="%accessTokenInLtpaCookie.desc"  required="false" type="Boolean" default="false"/>
          <AD id="initialStateCacheCapacity" name="%initialStateCacheCapacity" description="%initialStateCacheCapacity.desc" required="false" type="Integer" min="0" default="3000" />             
