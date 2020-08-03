@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2019 IBM Corporation and others.
+ * Copyright (c) 2019, 2020 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,8 +16,8 @@ import java.security.Key;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -29,6 +29,11 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
+import org.jose4j.jwk.EcJwkGenerator;
+import org.jose4j.jwk.EllipticCurveJsonWebKey;
+import org.jose4j.keys.EllipticCurves;
+import org.jose4j.lang.JoseException;
 
 import com.ibm.json.java.JSON;
 import com.ibm.json.java.JSONArray;
@@ -234,9 +239,9 @@ public class JwtBuilderSetApisClient extends HttpServlet {
                 // generate one of the type requested.
                 if (!attrs.containsKey(JWTBuilderConstants.SHARED_KEY)) {
                     if (JWTBuilderConstants.SHARED_KEY_PRIVATE_KEY_TYPE.equals(keyType)) {
-                        key = generatePrivateKey();
+                        key = generatePrivateKey(alg, attrs);
                     } else {
-                        key = generatePublicKey();
+                        key = generatePublicKey(alg, attrs);
                     }
                 }
                 myJwtBuilder.signWith(alg, (Key) key);
@@ -244,33 +249,46 @@ public class JwtBuilderSetApisClient extends HttpServlet {
         }
     }
 
-    private Key generatePrivateKey() throws Exception {
-
-        int DEFAULT_KEY_SIZE = 2048;
-
-        KeyPair keypair = generateKeyPair(DEFAULT_KEY_SIZE);
-
-        RSAPrivateKey priKey = (RSAPrivateKey) keypair.getPrivate();
-
+    private Key generatePrivateKey(String alg, JSONObject attrs) throws Exception {
+        if (alg == null) {
+            return null;
+        }
+        PrivateKey priKey = null;
+        if (alg.startsWith("ES")) {
+            priKey = getESPrivateKey(attrs);
+        } else {
+            priKey = getRSPrivateKey();
+        }
         return priKey;
     }
 
-    /**
-     * <p>
-     * Generates a public key
-     *
-     * @return - a public key
-     * @throws Exception
-     */
-    private Key generatePublicKey() throws Exception {
-
+    private PrivateKey getRSPrivateKey() throws Exception {
         int DEFAULT_KEY_SIZE = 2048;
 
         KeyPair keypair = generateKeyPair(DEFAULT_KEY_SIZE);
 
-        RSAPublicKey pubKey = (RSAPublicKey) keypair.getPublic();
+        return keypair.getPrivate();
+    }
 
+    private Key generatePublicKey(String alg, JSONObject attrs) throws Exception {
+        if (alg == null) {
+            return null;
+        }
+        PublicKey pubKey = null;
+        if (alg.startsWith("ES")) {
+            pubKey = getESPublicKey(attrs);
+        } else {
+            pubKey = getRSPublicKey();
+        }
         return pubKey;
+    }
+
+    private PublicKey getRSPublicKey() throws Exception {
+        int DEFAULT_KEY_SIZE = 2048;
+
+        KeyPair keypair = generateKeyPair(DEFAULT_KEY_SIZE);
+
+        return keypair.getPublic();
     }
 
     private KeyPair generateKeyPair(int size) throws Exception {
@@ -287,6 +305,36 @@ public class JwtBuilderSetApisClient extends HttpServlet {
         KeyPair keypair = keyGenerator.generateKeyPair();
 
         return keypair;
+    }
+
+    private PrivateKey getESPrivateKey(JSONObject attrs) throws Exception {
+        String ecSpec = (String) attrs.get(JWTBuilderConstants.EC_KEY_SPEC);
+        EllipticCurveJsonWebKey jwk = generateECKey(ecSpec);
+        return getECPrivateKey(jwk);
+    }
+
+    private PublicKey getESPublicKey(JSONObject attrs) throws Exception {
+        String ecSpec = (String) attrs.get(JWTBuilderConstants.EC_KEY_SPEC);
+        EllipticCurveJsonWebKey jwk = generateECKey(ecSpec);
+        return getECPublicKey(jwk);
+    }
+
+    private EllipticCurveJsonWebKey generateECKey(String ecSpec) throws JoseException {
+        return EcJwkGenerator.generateJwk(EllipticCurves.getSpec(ecSpec));
+    }
+
+    private PrivateKey getECPrivateKey(EllipticCurveJsonWebKey jwk) throws JoseException {
+        if (jwk != null) {
+            return jwk.getPrivateKey();
+        }
+        return null;
+    }
+
+    private PublicKey getECPublicKey(EllipticCurveJsonWebKey jwk) throws JoseException {
+        if (jwk != null) {
+            return jwk.getPublicKey();
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")
