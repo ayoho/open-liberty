@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2016 IBM Corporation and others.
+ * Copyright (c) 2016, 2020 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package com.ibm.ws.security.jwt.internal;
 
@@ -20,6 +20,7 @@ import com.ibm.websphere.security.jwt.JwtToken;
 import com.ibm.ws.security.jwt.config.JwtConfig;
 import com.ibm.ws.security.jwt.utils.JwtCreator;
 import com.ibm.ws.security.jwt.utils.JwtData;
+import com.ibm.ws.security.jwt.utils.JwtTokenizer;
 import com.ibm.ws.security.jwt.utils.JwtUtils;
 
 public class TokenImpl implements JwtToken {
@@ -28,6 +29,8 @@ public class TokenImpl implements JwtToken {
     String header;
     String payload;
     String compact;
+
+    private JwtTokenizer tokenizer;
 
     public TokenImpl(BuilderImpl jwtBuilder, JwtConfig config) throws JwtException {
         // claims = jwtBuilder.getClaims();
@@ -42,18 +45,20 @@ public class TokenImpl implements JwtToken {
     }
 
     private void createToken(BuilderImpl jwtBuilder, JwtConfig config) throws JwtTokenException {
-        // TODO Auto-generated method stub
-
-        JwtConfig jwtConfig = config;//jwtBuilder.getTheServiceConfig(jwtBuilder.getClaims().getIssuer());
-
-        JwtData jwtData = new JwtData(jwtBuilder, jwtConfig, JwtData.TYPE_JWT_TOKEN);
+        JwtData jwtData = new JwtData(jwtBuilder, config, JwtData.TYPE_JWT_TOKEN);
         compact = JwtCreator.createJwtAsString(jwtData, jwtBuilder.getClaims());
-        String[] parts = JwtUtils.splitTokenString(compact);
-
-        header = JwtUtils.fromBase64ToJsonString(parts[0]); // decoded header in
-                                                            // json format
-        payload = JwtUtils.fromBase64ToJsonString(parts[1]); // payload - claims
+        tokenizer = new JwtTokenizer(compact);
+        setHeader();
+        setPayload();
         setClaims();
+    }
+
+    private void setHeader() {
+        header = tokenizer.getHeader();
+    }
+
+    private void setPayload() {
+        payload = tokenizer.getPayload();
     }
 
     private void setClaims() throws JwtTokenException {

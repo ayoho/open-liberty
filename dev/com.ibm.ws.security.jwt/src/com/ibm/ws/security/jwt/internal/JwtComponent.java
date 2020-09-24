@@ -68,6 +68,9 @@ public class JwtComponent implements JwtConfig {
     private long jwkRotationTime;
     private int jwkSigningKeySize;
     private long elapsedNbfTime;
+    private String keyManagementKeyAlgorithm;
+    private String keyManagementKeyAlias;
+    private String contentEncryptionAlgorithm;
 
     private PublicKey publicKey = null;
     private PrivateKey privateKey = null;
@@ -168,6 +171,9 @@ public class JwtComponent implements JwtConfig {
         jwkSigningKeySize = ((Long) props.get(JwtUtils.CFG_KEY_JWK_SIGNING_KEY_SIZE)).intValue();
         elapsedNbfTime = ((Long) props.get(JwtUtils.CFG_KEY_ELAPSED_NBF)).longValue();
         amrAttributes = JwtUtils.trimIt((String[]) props.get(JwtUtils.CFG_AMR_ATTR));
+        keyManagementKeyAlgorithm = JwtUtils.trimIt((String) props.get(JwtUtils.CFG_KEY_KEY_MANAGEMENT_KEY_ALG));
+        keyManagementKeyAlias = JwtUtils.trimIt((String) props.get(JwtUtils.CFG_KEY_KEY_MANAGEMENT_KEY_ALIAS));
+        contentEncryptionAlgorithm = JwtUtils.trimIt((String) props.get(JwtUtils.CFG_KEY_CONTENT_ENCRYPTION_ALG));
 
         if (isJwkCapableSigAlgorithm()) {
             initializeJwkProvider(this);
@@ -361,6 +367,21 @@ public class JwtComponent implements JwtConfig {
     @Override
     public long getElapsedNbfTime() {
         return elapsedNbfTime;
+    }
+
+    @Override
+    public String getKeyManagementKeyAlgorithm() {
+        return keyManagementKeyAlgorithm;
+    }
+
+    @Override
+    public String getKeyManagementKeyAlias() {
+        return keyManagementKeyAlias;
+    }
+
+    @Override
+    public String getContentEncryptionAlgorithm() {
+        return contentEncryptionAlgorithm;
     }
 
     /**

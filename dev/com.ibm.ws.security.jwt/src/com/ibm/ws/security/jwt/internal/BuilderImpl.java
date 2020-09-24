@@ -21,6 +21,8 @@ import java.util.Set;
 
 import javax.security.auth.Subject;
 
+import org.jose4j.jwe.ContentEncryptionAlgorithmIdentifiers;
+import org.jose4j.jwe.KeyManagementAlgorithmIdentifiers;
 import org.jose4j.lang.JoseException;
 import org.osgi.framework.ServiceReference;
 import org.osgi.service.component.ComponentContext;
@@ -77,6 +79,11 @@ public class BuilderImpl implements Builder {
     private String sharedKey;
     private Key privateKey;
     private String configId;
+
+    // JWE fields
+    private String keyManagementAlg;
+    private Key keyManagementKey;
+    private String contentEncryptionAlg;
 
     private final KeyAlgorithmChecker keyAlgChecker = new KeyAlgorithmChecker();
 
@@ -166,7 +173,7 @@ public class BuilderImpl implements Builder {
         if (jwtConfig.getSharedKey() != null) {
             sharedKey = jwtConfig.getSharedKey();
         }
-        
+
         List<String> amrAttr = jwtConfig.getAMRAttributes();// getProperty(amrAttributes);
         if (amrAttr != null) {
             try {
@@ -499,6 +506,74 @@ public class BuilderImpl implements Builder {
                 Constants.SIGNATURE_ALG_HS512;
     }
 
+    /*
+     * (non-Javadoc)
+     *
+     * @see com.ibm.websphere.security.jwt.Builder#encryptWith(java.lang.String, java.security.Key, java.lang.String)
+     */
+    @Override
+    public Builder encryptWith(String keyManagementAlg, Key keyManagementKey, String contentEncryptionAlg) throws KeyException {
+        if (!isSupportedKeyManagementAlg(keyManagementAlg)) {
+            String err = Tr.formatMessage(tc, "UNSUPPORTED_KEY_MANAGEMENT_ALGORITHM", new Object[] { keyManagementAlg, getSupportedKeyManagementAlgorithms() });
+            throw new KeyException(err);
+        }
+        if (!isSupportedContentEncryptionAlgorithm(contentEncryptionAlg)) {
+            String err = Tr.formatMessage(tc, "UNSUPPORTED_CONTENT_ENCRYPTION_ALGORITHM", new Object[] { contentEncryptionAlg, getSupportedContentEncryptionAlgorithms() });
+            throw new KeyException(err);
+        }
+        this.keyManagementAlg = keyManagementAlg;
+        this.keyManagementKey = keyManagementKey;
+        this.contentEncryptionAlg = contentEncryptionAlg;
+        return this;
+    }
+
+    boolean isSupportedKeyManagementAlg(String keyManagementAlg) {
+        if (keyManagementAlg == null) {
+            return false;
+        }
+        return getSupportedKeyManagementAlgorithms().contains(keyManagementAlg);
+    }
+
+    List<String> getSupportedKeyManagementAlgorithms() {
+        List<String> supportedAlgs = new ArrayList<String>();
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.A128GCMKW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.A128KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.A192GCMKW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.A192KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.A256GCMKW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.A256KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.DIRECT);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.ECDH_ES);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.ECDH_ES_A128KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.ECDH_ES_A192KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.ECDH_ES_A256KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.PBES2_HS256_A128KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.PBES2_HS384_A192KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.PBES2_HS512_A256KW);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.RSA1_5);
+        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.RSA_OAEP);
+        //        supportedAlgs.add(KeyManagementAlgorithmIdentifiers.RSA_OAEP_256);
+        return supportedAlgs;
+    }
+
+    boolean isSupportedContentEncryptionAlgorithm(String contentEncryptionAlg) {
+        if (contentEncryptionAlg == null) {
+            return false;
+        }
+        return getSupportedContentEncryptionAlgorithms().contains(contentEncryptionAlg);
+    }
+
+    List<String> getSupportedContentEncryptionAlgorithms() {
+        List<String> supportedAlgs = new ArrayList<String>();
+        //        supportedAlgs.add(ContentEncryptionAlgorithmIdentifiers.AES_128_CBC_HMAC_SHA_256);
+        //        supportedAlgs.add(ContentEncryptionAlgorithmIdentifiers.AES_128_GCM);
+        //        supportedAlgs.add(ContentEncryptionAlgorithmIdentifiers.AES_192_CBC_HMAC_SHA_384);
+        //        supportedAlgs.add(ContentEncryptionAlgorithmIdentifiers.AES_192_GCM);
+        //        supportedAlgs.add(ContentEncryptionAlgorithmIdentifiers.AES_256_CBC_HMAC_SHA_512);
+        supportedAlgs.add(ContentEncryptionAlgorithmIdentifiers.AES_256_GCM);
+        return supportedAlgs;
+    }
+
     // add claims with the given name and value
     /*
      * (non-Javadoc)
@@ -809,6 +884,18 @@ public class BuilderImpl implements Builder {
         return alg;
     }
 
+    public String getKeyManagementAlg() {
+        return keyManagementAlg;
+    }
+
+    public Key getKeyManagementKey() {
+        return keyManagementKey;
+    }
+
+    public String getContentEncryptionAlg() {
+        return contentEncryptionAlg;
+    }
+
     private boolean isValidClaim(String key, Object value) throws InvalidClaimException {
         String err = null;
         if (JwtUtils.isNullEmpty(key)) {
@@ -856,14 +943,14 @@ public class BuilderImpl implements Builder {
         }
         return this;
     }
-    
-	/**
-	 * Checks the attributes provided exists in the subject, if so add it to the
-	 * claims as "amr" values
-	 *
-	 * @param amrAttr
-	 * @throws Exception
-	 */
+
+    /**
+     * Checks the attributes provided exists in the subject, if so add it to the
+     * claims as "amr" values
+     *
+     * @param amrAttr
+     * @throws Exception
+     */
     private void checkAmrAttrInSubject(List<String> amrAttr) throws Exception {
         Subject subj = WSSubject.getRunAsSubject();
         List<Object> amrValues = new ArrayList<Object>();
