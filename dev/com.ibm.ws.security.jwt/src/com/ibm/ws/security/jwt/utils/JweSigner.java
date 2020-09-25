@@ -10,11 +10,15 @@
  *******************************************************************************/
 package com.ibm.ws.security.jwt.utils;
 
-import java.security.Key;
 import java.security.KeyStoreException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.cert.CertificateException;
 
+import org.jose4j.jwa.AlgorithmConstraints;
+import org.jose4j.jwa.AlgorithmConstraints.ConstraintType;
 import org.jose4j.jwe.JsonWebEncryption;
+import org.jose4j.lang.JoseException;
 
 import com.ibm.websphere.security.jwt.InvalidTokenException;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
@@ -25,10 +29,11 @@ public class JweSigner {
 
     @FFDCIgnore({ Exception.class })
     public static String getSignedJwt(String jws, JwtData jwtData) throws Exception {
-
+        String jwt = null;
+        JwtConfig jwtConfig = null;
         try {
             print("Hi there! You're trying to build a JWE!");
-            JwtConfig jwtConfig = jwtData.getConfig();
+            jwtConfig = jwtData.getConfig();
 
             JsonWebEncryption jwe = new JsonWebEncryption();
 
@@ -36,7 +41,7 @@ public class JweSigner {
             jwe.setAlgorithmHeaderValue(jwtConfig.getKeyManagementKeyAlgorithm());
             jwe.setEncryptionMethodHeaderParameter(jwtConfig.getContentEncryptionAlgorithm());
 
-            Key keyManagementKey = getKeyManagementKey(jwtConfig);
+            PublicKey keyManagementKey = getPublicKeyManagementKey(jwtConfig);
             if (keyManagementKey == null && !"none".equals(jwtData.getSignatureAlgorithm())) {
                 throw jwtData.getNoKeyException();
             }
@@ -51,27 +56,49 @@ public class JweSigner {
             jwe.setHeader("typ", "JWT");
             jwe.setHeader("cty", "jwt");
 
-            //        jwe.setDoKeyValidation(false);
+            jwe.setDoKeyValidation(false);
 
-            String jwt = null;
             try {
                 jwt = jwe.getCompactSerialization();
             } catch (Exception e) {
                 throw new JwtTokenException(e.getLocalizedMessage(), e);
             }
+            tryDecrypt(jwt, jwtConfig);
             return jwt;
         } catch (Exception e) {
             print("Aww, looks like you hit a snag: " + e + "");
             throw e;
         } finally {
-            print("Thanks for trying to build a JWE!");
+            print("Thanks for trying to build a JWE! Got: \n" + jwt + "\n");
         }
     }
 
-    static Key getKeyManagementKey(JwtConfig jwtConfig) throws KeyStoreException, CertificateException, InvalidTokenException {
-        String keyAlias = jwtConfig.getKeyAlias();
+    static PublicKey getPublicKeyManagementKey(JwtConfig jwtConfig) throws KeyStoreException, CertificateException, InvalidTokenException {
+        String keyAlias = jwtConfig.getKeyManagementKeyAlias();
         String trustStoreRef = jwtConfig.getTrustStoreRef();
         return JwtUtils.getPublicKey(keyAlias, trustStoreRef);
+    }
+
+    static void tryDecrypt(String jwt, JwtConfig jwtConfig) throws JoseException, KeyStoreException, CertificateException, InvalidTokenException {
+        JsonWebEncryption jwe = new JsonWebEncryption();
+        AlgorithmConstraints algorithmConstraints = new AlgorithmConstraints(ConstraintType.WHITELIST, jwtConfig.getKeyManagementKeyAlgorithm());
+        jwe.setAlgorithmConstraints(algorithmConstraints);
+        AlgorithmConstraints encryptionConstraints = new AlgorithmConstraints(ConstraintType.WHITELIST, jwtConfig.getContentEncryptionAlgorithm());
+        jwe.setContentEncryptionAlgorithmConstraints(encryptionConstraints);
+
+        jwe.setCompactSerialization(jwt);
+
+        PrivateKey keyManagementKey = getPrivateKeyManagementKey(jwtConfig);
+        jwe.setKey(keyManagementKey);
+
+        String jws = jwe.getPlaintextString();
+        print("Decrypted JWS:\n" + jws);
+    }
+
+    static PrivateKey getPrivateKeyManagementKey(JwtConfig jwtConfig) throws KeyStoreException, CertificateException, InvalidTokenException {
+        String keyAlias = jwtConfig.getKeyManagementKeyAlias();
+        String keyStoreRef = jwtConfig.getKeyStoreRef();
+        return JwtUtils.getPrivateKey(keyAlias, keyStoreRef);
     }
 
     static void print(String string) {
