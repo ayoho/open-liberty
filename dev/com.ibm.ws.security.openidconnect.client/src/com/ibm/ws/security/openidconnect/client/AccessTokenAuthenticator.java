@@ -27,7 +27,6 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
-import org.apache.http.ParseException;
 import org.apache.http.StatusLine;
 import org.apache.http.util.EntityUtils;
 
@@ -35,9 +34,13 @@ import com.google.gson.JsonParser;
 import com.ibm.json.java.JSONObject;
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
+import com.ibm.websphere.security.jwt.Claims;
+import com.ibm.websphere.security.jwt.JwtToken;
 import com.ibm.websphere.ssl.JSSEHelper;
 import com.ibm.websphere.ssl.SSLException;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.security.jwt.config.ConsumerUtils;
+import com.ibm.ws.security.jwt.utils.JweHelper;
 import com.ibm.ws.security.openidconnect.client.internal.TraceConstants;
 import com.ibm.ws.security.openidconnect.client.jose4j.util.Jose4jUtil;
 import com.ibm.ws.security.openidconnect.clients.common.ClientConstants;
@@ -271,89 +274,120 @@ public class AccessTokenAuthenticator {
         return sslSocketFactory;
     }
 
-    @FFDCIgnore({ IOException.class })
-    JSONObject handleResponseMap(Map<String, Object> responseMap, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) throws ParseException, IOException {
-        String jresponse = null;
-        JSONObject jobj = null, errorjson = null;
+    JSONObject handleResponseMap(Map<String, Object> responseMap, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) throws Exception {
+        JSONObject jobj = null;
 
         if (responseMap.get(ClientConstants.RESPONSEMAP_CODE) != null) {
             HttpResponse response = (HttpResponse) responseMap.get(ClientConstants.RESPONSEMAP_CODE);
             if (isErrorResponse(response)) {
-                HttpEntity entity = response.getEntity();
-                if (entity != null) {
-                    jresponse = EntityUtils.toString(entity);
-                    try {
-                        if (jresponse != null) {
-                            if (tc.isDebugEnabled()) {
-                                Tr.debug(tc, "received error from OP =", jresponse);
-                                // Tr.debug(tc, "debugging:" +
-                                // OidcUtil.dumpStackTrace(new Exception(),
-                                // -1));
-                            }
-                            errorjson = JSONObject.parse(jresponse);
-                            logErrorMessage(errorjson, clientConfig, oidcClientRequest);// we
-                                                                                        // are
-                                                                                        // logging
-                                                                                        // error
-                                                                                        // messages
-                                                                                        // here,
-                                                                                        // so
-                                                                                        // we
-                                                                                        // stop
-                                                                                        // the
-                                                                                        // processing
-                                                                                        // here.
-                            return null;
-                        }
-                    } catch (IOException ioe) {
-                        // ignore, we'll continue with logging the error message
-                    }
-                }
-
-                if (jresponse == null || jresponse.isEmpty()) {
-                    // WWW-Authenticate: Bearer error=invalid_token,
-                    // error_description=CWWKS1617E: A userinfo request was made
-                    // with an access token that was not recognized. The request
-                    // URI was /oidc/endpoint/OidcConfigSample/userinfo.
-                    Header header = response.getFirstHeader("WWW-Authenticate");
-                    jresponse = header.getValue();
-                }
-
-                if (jresponse != null) {
-                    if (tc.isDebugEnabled()) {
-                        Tr.debug(tc, "received error from OP and extracted it from the header =", jresponse);
-                        // Tr.debug(tc, "debugging:" +
-                        // OidcUtil.dumpStackTrace(new Exception(), -1));
-                    }
-
-                    if (jresponse.contains(INVALID_TOKEN)) {
-                        logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_NOT_ACTIVE", clientConfig.getValidationMethod(), clientConfig.getValidationEndpointUrl());
-                    }
-                    String originalError = extractErrorDescription(jresponse);
-                    if (originalError != null) {
-                        if (tc.isDebugEnabled()) {
-                            Tr.debug(tc, "the original error from OP =", originalError);
-                        }
-                    }
-                    logError(clientConfig, oidcClientRequest, "OIDC_PROPAGATION_FAIL", originalError, clientConfig.getValidationEndpointUrl());
-                } else {
-                    logError(clientConfig, oidcClientRequest, "OIDC_PROPAGATION_FAIL", "", clientConfig.getValidationEndpointUrl());
-                }
-
-                jobj = null;
+                jobj = extractErrorResponse(clientConfig, oidcClientRequest, response);
             } else {
                 // HTTP 200 response
-                HttpEntity entity = response.getEntity();
-                if (entity != null) {
-                    jresponse = EntityUtils.toString(entity);
-                }
-                try {
-                    jobj = JSONObject.parse(jresponse);
-                } catch (IOException e) {
+                jobj = extractSuccessfulResponse(clientConfig, oidcClientRequest, response);
+            }
+        }
+        return jobj;
+    }
+
+    @FFDCIgnore({ IOException.class })
+    JSONObject extractErrorResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, HttpResponse response) throws IOException {
+        String jresponse = null;
+        JSONObject jobj = null;
+        JSONObject errorjson = null;
+        HttpEntity entity = response.getEntity();
+        if (entity != null) {
+            jresponse = EntityUtils.toString(entity);
+            try {
+                if (jresponse != null) {
                     if (tc.isDebugEnabled()) {
-                        Tr.debug(tc, "the response from OP is not in JSON format = ", jresponse);
+                        Tr.debug(tc, "received error from OP =", jresponse);
+                        // Tr.debug(tc, "debugging:" +
+                        // OidcUtil.dumpStackTrace(new Exception(),
+                        // -1));
                     }
-                    logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INVALID_VALIDATION_URL", clientConfig.getValidationEndpointUrl());
+                    errorjson = JSONObject.parse(jresponse);
+                    // we are logging error messages here, so we stop the processing here.
+                    logErrorMessage(errorjson, clientConfig, oidcClientRequest);
+                    return null;
+                }
+            } catch (IOException ioe) {
+                // ignore, we'll continue with logging the error message
+            }
+        }
+
+        if (jresponse == null || jresponse.isEmpty()) {
+            // WWW-Authenticate: Bearer error=invalid_token,
+            // error_description=CWWKS1617E: A userinfo request was made
+            // with an access token that was not recognized. The request
+            // URI was /oidc/endpoint/OidcConfigSample/userinfo.
+            Header header = response.getFirstHeader("WWW-Authenticate");
+            jresponse = header.getValue();
+        }
+
+        if (jresponse != null) {
+            if (tc.isDebugEnabled()) {
+                Tr.debug(tc, "received error from OP and extracted it from the header =", jresponse);
+                // Tr.debug(tc, "debugging:" +
+                // OidcUtil.dumpStackTrace(new Exception(), -1));
+            }
+
+            if (jresponse.contains(INVALID_TOKEN)) {
+                logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_NOT_ACTIVE", clientConfig.getValidationMethod(), clientConfig.getValidationEndpointUrl());
+            }
+            String originalError = extractErrorDescription(jresponse);
+            if (originalError != null) {
+                if (tc.isDebugEnabled()) {
+                    Tr.debug(tc, "the original error from OP =", originalError);
+                }
+            }
+            logError(clientConfig, oidcClientRequest, "OIDC_PROPAGATION_FAIL", originalError, clientConfig.getValidationEndpointUrl());
+        } else {
+            logError(clientConfig, oidcClientRequest, "OIDC_PROPAGATION_FAIL", "", clientConfig.getValidationEndpointUrl());
+        }
+
+        jobj = null;
+        return jobj;
+    }
+
+    @FFDCIgnore({ IOException.class })
+    JSONObject extractSuccessfulResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, HttpResponse response) throws Exception {
+        String jresponse = null;
+        HttpEntity entity = response.getEntity();
+        if (entity != null) {
+            jresponse = EntityUtils.toString(entity);
+        }
+        JSONObject jobj = null;
+        try {
+            jobj = JSONObject.parse(jresponse);
+        } catch (IOException e) {
+            if (tc.isDebugEnabled()) {
+                Tr.debug(tc, "the response from OP is not in JSON format = ", jresponse);
+            }
+            // Response isn't in raw JSON format, so check if it's in JWT format
+            jobj = extractClaimsFromJwtResponse(clientConfig, jresponse);
+            if (jobj == null) {
+                logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INVALID_VALIDATION_URL", clientConfig.getValidationEndpointUrl());
+            }
+        }
+        return jobj;
+    }
+
+    JSONObject extractClaimsFromJwtResponse(OidcClientConfig clientConfig, String responseString) throws Exception {
+        JSONObject jobj = null;
+        if (JweHelper.isJwe(responseString)) {
+            responseString = JweHelper.extractJwsFromJweToken(responseString, clientConfig, null);
+        }
+        if (JweHelper.isJws(responseString)) {
+            ConsumerUtils consumerUtils = clientConfig.getConsumerUtils();
+            if (consumerUtils != null) {
+                JwtToken jwtResponse = consumerUtils.parseJwt(responseString, clientConfig);
+                if (jwtResponse != null) {
+                    Claims claims = jwtResponse.getClaims();
+                    if (claims != null) {
+                        responseString = claims.toJsonString();
+                        jobj = JSONObject.parse(responseString);
+                        return jobj;
+                    }
                 }
             }
         }
@@ -544,8 +578,6 @@ public class AccessTokenAuthenticator {
         } catch (Exception e) {
             if (tc.isDebugEnabled()) {
                 Tr.debug(tc, "exception while getting the userInfo =", e.getLocalizedMessage());
-                // Tr.debug(tc, "debugging:" + OidcUtil.dumpStackTrace(new
-                // Exception(), -1));
             }
             logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INTERNAL_ERR", e.getLocalizedMessage(), clientConfig.getValidationMethod(), clientConfig.getValidationEndpointUrl());
             return oidcResult;

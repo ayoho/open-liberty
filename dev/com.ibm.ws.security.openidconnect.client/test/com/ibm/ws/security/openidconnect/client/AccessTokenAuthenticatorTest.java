@@ -29,7 +29,6 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.apache.http.Header;
 import org.apache.http.HttpResponse;
-import org.apache.http.ParseException;
 import org.apache.http.StatusLine;
 import org.apache.http.entity.BasicHttpEntity;
 import org.jmock.Expectations;
@@ -883,7 +882,7 @@ public class AccessTokenAuthenticatorTest {
     }
 
     @Test
-    public void testHandleResponseMap() throws ParseException, IOException {
+    public void testHandleResponseMap() throws Exception {
         final InputStream input = new ByteArrayInputStream(new String("").getBytes());
         final BasicHttpEntity entity = new BasicHttpEntity();
         entity.setContent(input);
@@ -926,7 +925,7 @@ public class AccessTokenAuthenticatorTest {
     }
 
     @Test
-    public void testHandleResponseMap_NullHeader() throws ParseException, IOException {
+    public void testHandleResponseMap_NullHeader() throws Exception {
         final InputStream input = new ByteArrayInputStream(new String("").getBytes());
         final BasicHttpEntity entity = new BasicHttpEntity();
         entity.setContent(input);
