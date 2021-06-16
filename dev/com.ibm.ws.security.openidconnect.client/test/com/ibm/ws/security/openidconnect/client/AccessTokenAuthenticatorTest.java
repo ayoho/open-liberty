@@ -1053,6 +1053,25 @@ public class AccessTokenAuthenticatorTest {
     }
 
     @Test
+    public void test_extractSuccessfulResponse_validNonEmptyJson_contentTypeJwt() throws Exception {
+        JSONObject responseJson = new JSONObject();
+        responseJson.put("key1", "value1");
+        responseJson.put("key2", "value2");
+        final InputStream input = new ByteArrayInputStream(new String(responseJson.toString()).getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        entity.setContentType("application/jwt");
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNull("Result should have been null but was " + result + ".", result);
+    }
+
+    @Test
     public void test_extractSuccessfulResponse_jws() throws Exception {
         JSONObject headerJson = new JSONObject();
         headerJson.put("alg", "HS256");
@@ -1066,6 +1085,7 @@ public class AccessTokenAuthenticatorTest {
         final InputStream input = new ByteArrayInputStream(rawResponse.getBytes());
         final BasicHttpEntity entity = new BasicHttpEntity();
         entity.setContent(input);
+        entity.setContentType("application/jwt");
         ConsumerUtils consumerUtils = new ConsumerUtils(null);
 
         mockery.checking(new Expectations() {
@@ -1103,6 +1123,7 @@ public class AccessTokenAuthenticatorTest {
         final InputStream input = new ByteArrayInputStream(rawResponse.getBytes());
         final BasicHttpEntity entity = new BasicHttpEntity();
         entity.setContent(input);
+        entity.setContentType("application/jwt");
         ConsumerUtils consumerUtils = new ConsumerUtils(null);
 
         mockery.checking(new Expectations() {

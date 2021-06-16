@@ -352,7 +352,6 @@ public class AccessTokenAuthenticator {
         return jobj;
     }
 
-    @FFDCIgnore({ IOException.class })
     JSONObject extractSuccessfulResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, HttpResponse response) throws Exception {
         HttpEntity entity = response.getEntity();
         String jresponse = null;
@@ -362,6 +361,27 @@ public class AccessTokenAuthenticator {
         if (jresponse == null) {
             return null;
         }
+        String contentType = getContentType(entity);
+        JSONObject jobj = null;
+        if (contentType.contains("application/json")) {
+            jobj = extractClaimsFromJsonResponse(jresponse, clientConfig, oidcClientRequest);
+        } else if (contentType.contains("application/jwt")) {
+            jobj = extractClaimsFromJwtResponse(clientConfig, jresponse);
+        }
+        return jobj;
+    }
+
+    String getContentType(HttpEntity entity) {
+        String contentType = "application/json";
+        Header contentTypeHeader = entity.getContentType();
+        if (contentTypeHeader != null) {
+            contentType = contentTypeHeader.getValue();
+        }
+        return contentType;
+    }
+
+    @FFDCIgnore({ IOException.class })
+    JSONObject extractClaimsFromJsonResponse(String jresponse, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) {
         JSONObject jobj = null;
         try {
             jobj = JSONObject.parse(jresponse);
@@ -369,11 +389,7 @@ public class AccessTokenAuthenticator {
             if (tc.isDebugEnabled()) {
                 Tr.debug(tc, "the response from OP is not in JSON format = ", jresponse);
             }
-            // Response isn't in raw JSON format, so check if it's in JWT format
-            jobj = extractClaimsFromJwtResponse(clientConfig, jresponse);
-            if (jobj == null) {
-                logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INVALID_VALIDATION_URL", clientConfig.getValidationEndpointUrl());
-            }
+            logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INVALID_VALIDATION_URL", clientConfig.getValidationEndpointUrl());
         }
         return jobj;
     }
