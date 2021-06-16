@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2016, 2020 IBM Corporation and others.
+ * Copyright (c) 2016, 2021 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -39,6 +39,7 @@ import com.ibm.websphere.security.jwt.JwtToken;
 import com.ibm.websphere.ssl.JSSEHelper;
 import com.ibm.websphere.ssl.SSLException;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.kernel.productinfo.ProductInfo;
 import com.ibm.ws.security.jwt.config.ConsumerUtils;
 import com.ibm.ws.security.jwt.utils.JweHelper;
 import com.ibm.ws.security.openidconnect.client.internal.TraceConstants;
@@ -69,6 +70,8 @@ public class AccessTokenAuthenticator {
     OidcClientUtil oidcClientUtil = new OidcClientUtil();
     SSLSupport sslSupport = null;
     private Jose4jUtil jose4jUtil = null;
+
+    private static boolean issuedBetaMessage = false;
 
     public AccessTokenAuthenticator() {
     }
@@ -351,8 +354,8 @@ public class AccessTokenAuthenticator {
 
     @FFDCIgnore({ IOException.class })
     JSONObject extractSuccessfulResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, HttpResponse response) throws Exception {
-        String jresponse = null;
         HttpEntity entity = response.getEntity();
+        String jresponse = null;
         if (entity != null) {
             jresponse = EntityUtils.toString(entity);
         }
@@ -374,7 +377,7 @@ public class AccessTokenAuthenticator {
 
     JSONObject extractClaimsFromJwtResponse(OidcClientConfig clientConfig, String responseString) throws Exception {
         JSONObject jobj = null;
-        if (JweHelper.isJwe(responseString)) {
+        if (JweHelper.isJwe(responseString) && isRunningBetaMode()) {
             responseString = JweHelper.extractJwsFromJweToken(responseString, clientConfig, null);
         }
         if (JweHelper.isJws(responseString)) {
@@ -392,6 +395,19 @@ public class AccessTokenAuthenticator {
             }
         }
         return jobj;
+    }
+
+    boolean isRunningBetaMode() {
+        if (!ProductInfo.getBetaEdition()) {
+            return false;
+        } else {
+            // Running beta exception, issue message if we haven't already issued one for this class
+            if (!issuedBetaMessage) {
+                Tr.info(tc, "BETA: A beta method has been invoked for the class " + this.getClass().getName() + " for the first time.");
+                issuedBetaMessage = !issuedBetaMessage;
+            }
+            return true;
+        }
     }
 
     /**
