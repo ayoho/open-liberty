@@ -359,6 +359,9 @@ public class AccessTokenAuthenticator {
         if (entity != null) {
             jresponse = EntityUtils.toString(entity);
         }
+        if (jresponse == null) {
+            return null;
+        }
         JSONObject jobj = null;
         try {
             jobj = JSONObject.parse(jresponse);

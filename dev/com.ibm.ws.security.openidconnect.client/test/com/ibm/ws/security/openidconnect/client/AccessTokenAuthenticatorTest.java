@@ -1,12 +1,12 @@
 /*******************************************************************************
- * Copyright (c) 2016 IBM Corporation and others.
+ * Copyright (c) 2016, 2021 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package com.ibm.ws.security.openidconnect.client;
 
@@ -15,6 +15,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -35,6 +36,7 @@ import org.jmock.Expectations;
 import org.jmock.Mockery;
 import org.jmock.integration.junit4.JUnit4Mockery;
 import org.jmock.lib.legacy.ClassImposteriser;
+import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -51,6 +53,9 @@ import com.ibm.websphere.ssl.SSLConfig;
 import com.ibm.websphere.ssl.SSLConfigChangeListener;
 import com.ibm.websphere.ssl.SSLConfigurationNotAvailableException;
 import com.ibm.websphere.ssl.SSLException;
+import com.ibm.ws.common.internal.encoder.Base64Coder;
+import com.ibm.ws.security.common.crypto.HashUtils;
+import com.ibm.ws.security.jwt.config.ConsumerUtils;
 import com.ibm.ws.security.openidconnect.clients.common.ClientConstants;
 import com.ibm.ws.security.openidconnect.clients.common.MockOidcClientRequest;
 import com.ibm.ws.security.openidconnect.clients.common.OidcClientConfig;
@@ -959,6 +964,190 @@ public class AccessTokenAuthenticatorTest {
         respMap.put(ClientConstants.RESPONSEMAP_CODE, httpResponse);
         JSONObject jsonObject = tokenAuth.handleResponseMap(respMap, clientConfig, clientRequest);
         assertNull("Expected to receive a null value but was received: " + jsonObject, jsonObject);
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_responseMissingEntity() throws Exception {
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(null));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNull("Result should have been null but was " + result + ".", result);
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_emptyString() throws Exception {
+        final InputStream input = new ByteArrayInputStream(("").getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+                one(clientConfig).getInboundPropagation();
+                will(returnValue(REQUIRED));
+                one(clientRequest).getRsFailMsg();
+                will(returnValue("doesn't matter"));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNull("Result should have been null but was " + result + ".", result);
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_notJson() throws Exception {
+        final InputStream input = new ByteArrayInputStream(("This is not JSON").getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+                one(clientConfig).getInboundPropagation();
+                will(returnValue(REQUIRED));
+                one(clientRequest).getRsFailMsg();
+                will(returnValue("doesn't matter"));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNull("Result should have been null but was " + result + ".", result);
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_emptyJson() throws Exception {
+        JSONObject responseJson = new JSONObject();
+        final InputStream input = new ByteArrayInputStream(new String(responseJson.toString()).getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNotNull("Result should not have been null but was.", result);
+        assertTrue("Result should have been empty, but was " + result + ".", result.isEmpty());
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_validNonEmptyJson() throws Exception {
+        JSONObject responseJson = new JSONObject();
+        responseJson.put("key1", "value1");
+        responseJson.put("key2", "value2");
+        final InputStream input = new ByteArrayInputStream(new String(responseJson.toString()).getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNotNull("Result should not have been null but was.", result);
+        assertEquals("Result did not match the expected value.", responseJson, result);
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_jws() throws Exception {
+        JSONObject headerJson = new JSONObject();
+        headerJson.put("alg", "HS256");
+        headerJson.put("typ", "JWT");
+        JSONObject payloadJson = new JSONObject();
+        payloadJson.put("iss", GOOD_ISSUER);
+        String jwsHeader = Base64Coder.base64Encode(headerJson.toString());
+        String jwsPayload = Base64Coder.base64Encode(payloadJson.toString());
+        String signature = HashUtils.digest(jwsHeader + "." + jwsPayload);
+        String rawResponse = jwsHeader + "." + jwsPayload + "." + signature;
+        final InputStream input = new ByteArrayInputStream(rawResponse.getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        ConsumerUtils consumerUtils = new ConsumerUtils(null);
+
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+                one(clientConfig).getConsumerUtils();
+                will(returnValue(consumerUtils));
+                allowing(clientConfig).getKeyManagementKeyAlias();
+                will(returnValue(null));
+                one(clientConfig).getClockSkew();
+                will(returnValue(3000L));
+                one(clientConfig).isValidationRequired();
+                will(returnValue(false));
+                one(clientConfig).getTokenReuse();
+                will(returnValue(false));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNotNull("Result should not have been null but was.", result);
+        assertEquals("Result did not match the expected value.", payloadJson, result);
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_jwsMalformed() throws Exception {
+        JSONObject headerJson = new JSONObject();
+        headerJson.put("alg", "HS256");
+        headerJson.put("typ", "JWT");
+        JSONObject payloadJson = new JSONObject();
+        payloadJson.put("iss", GOOD_ISSUER);
+        String jwsHeader = Base64Coder.base64Encode(headerJson.toString());
+        String jwsPayload = Base64Coder.base64Encode(payloadJson.toString()) + "_mangled";
+        String signature = HashUtils.digest(jwsHeader + "." + jwsPayload);
+        String rawResponse = jwsHeader + "." + jwsPayload + "." + signature;
+        final InputStream input = new ByteArrayInputStream(rawResponse.getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+        ConsumerUtils consumerUtils = new ConsumerUtils(null);
+
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+                one(clientConfig).getConsumerUtils();
+                will(returnValue(consumerUtils));
+                allowing(clientConfig).getKeyManagementKeyAlias();
+                will(returnValue(null));
+                one(clientConfig).getClockSkew();
+                will(returnValue(3000L));
+            }
+        });
+        try {
+            JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+            fail("Should have thrown an exception, but got " + result + ".");
+        } catch (InvalidJwtException e) {
+            assertTrue("Did not find expected exception and reason string. Exception was " + e, e.toString().contains("Unable to parse"));
+        }
+    }
+
+    @Test
+    public void test_extractSuccessfulResponse_jweMalformed() throws Exception {
+        String rawResponse = "";
+        for (int i = 1; i <= 4; i++) {
+            rawResponse += Base64Coder.base64Encode("part" + i) + ".";
+        }
+        rawResponse += Base64Coder.base64Encode("part" + 5);
+        final InputStream input = new ByteArrayInputStream(rawResponse.getBytes());
+        final BasicHttpEntity entity = new BasicHttpEntity();
+        entity.setContent(input);
+
+        mockery.checking(new Expectations() {
+            {
+                one(httpResponse).getEntity();
+                will(returnValue(entity));
+                one(clientConfig).getInboundPropagation();
+                will(returnValue(REQUIRED));
+                one(clientRequest).getRsFailMsg();
+                will(returnValue("doesn't matter"));
+            }
+        });
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        assertNull("Result should have been null but was " + result + ".", result);
     }
 
     /**
