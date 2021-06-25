@@ -26,10 +26,8 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.http.Header;
-import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.StatusLine;
-import org.apache.http.util.EntityUtils;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.JwtContext;
@@ -45,6 +43,7 @@ import com.ibm.ws.ffdc.annotation.FFDCIgnore;
 import com.ibm.ws.kernel.productinfo.ProductInfo;
 import com.ibm.ws.security.jwt.utils.JweHelper;
 import com.ibm.ws.security.openidconnect.client.internal.AccessTokenCacheHelper;
+import com.ibm.ws.security.openidconnect.client.internal.AccessTokenValidationResponse;
 import com.ibm.ws.security.openidconnect.client.internal.TraceConstants;
 import com.ibm.ws.security.openidconnect.client.jose4j.util.Jose4jUtil;
 import com.ibm.ws.security.openidconnect.clients.common.ClientConstants;
@@ -215,7 +214,6 @@ public class AccessTokenAuthenticator {
      * @return
      */
     private String getAccessTokenFromReqAsAttribute(HttpServletRequest req) {
-        // TODO Auto-generated method stub
         String token = null;
         if (req.getAttribute(OidcClient.OIDC_ACCESS_TOKEN) != null) {
             token = (String) req.getAttribute(OidcClient.OIDC_ACCESS_TOKEN);
@@ -286,13 +284,12 @@ public class AccessTokenAuthenticator {
         return sslSocketFactory;
     }
 
-    JSONObject handleResponseMap(Map<String, Object> responseMap, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) throws Exception {
+    JSONObject handleAccessTokenValidationResponse(AccessTokenValidationResponse response, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) throws Exception {
         JSONObject jobj = null;
 
-        if (responseMap.get(ClientConstants.RESPONSEMAP_CODE) != null) {
-            HttpResponse response = (HttpResponse) responseMap.get(ClientConstants.RESPONSEMAP_CODE);
-            if (isErrorResponse(response)) {
-                jobj = extractErrorResponse(clientConfig, oidcClientRequest, response);
+        if (response != null) {
+            if (response.isErrorResponse()) {
+                processErrorResponse(clientConfig, oidcClientRequest, response);
             } else {
                 // HTTP 200 response
                 jobj = extractSuccessfulResponse(clientConfig, oidcClientRequest, response);
@@ -301,30 +298,32 @@ public class AccessTokenAuthenticator {
         return jobj;
     }
 
+    AccessTokenValidationResponse getValidationResponseFromMap(Map<String, Object> responseMap) {
+        if (responseMap.get(ClientConstants.RESPONSEMAP_CODE) != null) {
+            return new AccessTokenValidationResponse((HttpResponse) responseMap.get(ClientConstants.RESPONSEMAP_CODE));
+        }
+        return null;
+    }
+
     @FFDCIgnore({ IOException.class })
-    JSONObject extractErrorResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, HttpResponse response) throws IOException {
-        String jresponse = null;
-        JSONObject jobj = null;
+    void processErrorResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, AccessTokenValidationResponse response) throws IOException {
+        String jresponse = response.getRawHttpResponse();
         JSONObject errorjson = null;
-        HttpEntity entity = response.getEntity();
-        if (entity != null) {
-            jresponse = EntityUtils.toString(entity);
-            try {
-                if (jresponse != null) {
-                    if (tc.isDebugEnabled()) {
-                        Tr.debug(tc, "received error from OP =", jresponse);
-                        // Tr.debug(tc, "debugging:" +
-                        // OidcUtil.dumpStackTrace(new Exception(),
-                        // -1));
-                    }
-                    errorjson = JSONObject.parse(jresponse);
-                    // we are logging error messages here, so we stop the processing here.
-                    logErrorMessage(errorjson, clientConfig, oidcClientRequest);
-                    return null;
+        try {
+            if (jresponse != null) {
+                if (tc.isDebugEnabled()) {
+                    Tr.debug(tc, "received error from OP =", jresponse);
+                    // Tr.debug(tc, "debugging:" +
+                    // OidcUtil.dumpStackTrace(new Exception(),
+                    // -1));
                 }
-            } catch (IOException ioe) {
-                // ignore, we'll continue with logging the error message
+                errorjson = JSONObject.parse(jresponse);
+                // we are logging error messages here, so we stop the processing here.
+                logErrorMessage(errorjson, clientConfig, oidcClientRequest);
+                return;
             }
+        } catch (IOException ioe) {
+            // ignore, we'll continue with logging the error message
         }
 
         if (jresponse == null || jresponse.isEmpty()) {
@@ -332,7 +331,7 @@ public class AccessTokenAuthenticator {
             // error_description=CWWKS1617E: A userinfo request was made
             // with an access token that was not recognized. The request
             // URI was /oidc/endpoint/OidcConfigSample/userinfo.
-            Header header = response.getFirstHeader("WWW-Authenticate");
+            Header header = response.getHttpResponse().getFirstHeader("WWW-Authenticate");
             jresponse = header.getValue();
         }
 
@@ -356,21 +355,14 @@ public class AccessTokenAuthenticator {
         } else {
             logError(clientConfig, oidcClientRequest, "OIDC_PROPAGATION_FAIL", "", clientConfig.getValidationEndpointUrl());
         }
-
-        jobj = null;
-        return jobj;
     }
 
-    JSONObject extractSuccessfulResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, HttpResponse response) throws Exception {
-        HttpEntity entity = response.getEntity();
-        String jresponse = null;
-        if (entity != null) {
-            jresponse = EntityUtils.toString(entity);
-        }
+    JSONObject extractSuccessfulResponse(OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest, AccessTokenValidationResponse response) throws Exception {
+        String jresponse = response.getRawHttpResponse();
         if (jresponse == null) {
             return null;
         }
-        String contentType = getContentType(entity);
+        String contentType = response.getContentType();
         if (contentType == null) {
             logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INVALID_VALIDATION_URL", clientConfig.getValidationEndpointUrl());
             return null;
@@ -380,16 +372,10 @@ public class AccessTokenAuthenticator {
             jobj = extractClaimsFromJsonResponse(jresponse, clientConfig, oidcClientRequest);
         } else if (contentType.contains("application/jwt") && isRunningBetaMode()) {
             jobj = extractClaimsFromJwtResponse(jresponse, clientConfig, oidcClientRequest);
+        } else {
+            logError(clientConfig, oidcClientRequest, "PROPAGATION_TOKEN_INVALID_VALIDATION_URL", clientConfig.getValidationEndpointUrl());
         }
         return jobj;
-    }
-
-    String getContentType(HttpEntity entity) {
-        Header contentTypeHeader = entity.getContentType();
-        if (contentTypeHeader != null) {
-            return contentTypeHeader.getValue();
-        }
-        return null;
     }
 
     @FFDCIgnore({ IOException.class })
@@ -506,8 +492,8 @@ public class AccessTokenAuthenticator {
                     clientConfig.getClientId(), clientConfig.getClientSecret(),
                     accessToken, clientConfig.isHostNameVerificationEnabled(), clientConfig.getTokenEndpointAuthMethod(), sslSocketFactory, clientConfig.getUseSystemPropertiesForHttpClientConnections());
 
-            JSONObject jobj = null;
-            jobj = handleResponseMap(responseMap, clientConfig, oidcClientRequest);
+            AccessTokenValidationResponse response = getValidationResponseFromMap(responseMap);
+            JSONObject jobj = handleAccessTokenValidationResponse(response, clientConfig, oidcClientRequest);
 
             if (jobj != null) {
                 if (tc.isDebugEnabled()) {
@@ -552,12 +538,7 @@ public class AccessTokenAuthenticator {
         return jose4jUtil.createResultWithJose4JForJwt(accessToken, clientConfig, oidcClientRequest);
     }
 
-    /**
-     * @param response
-     * @return
-     */
     private boolean isErrorResponse(HttpResponse response) {
-        // TODO Auto-generated method stub
         // Check the response from the endpoint to see if there was an error
         StatusLine status = response.getStatusLine();
         if (status == null || status.getStatusCode() != 200) {
@@ -575,7 +556,7 @@ public class AccessTokenAuthenticator {
 
     }
 
-    private void logErrorMessage(JSONObject jobj, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) {
+    void logErrorMessage(JSONObject jobj, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) {
         String err = (String) jobj.get(Constants.ERROR);
         String inboundPropagation = clientConfig.getInboundPropagation();
         if (tc.isDebugEnabled()) {
@@ -622,7 +603,8 @@ public class AccessTokenAuthenticator {
         try {
             Map<String, Object> responseMap = oidcClientUtil.getUserinfo(clientConfig.getValidationEndpointUrl(), accessToken, sslSocketFactory, clientConfig.isHostNameVerificationEnabled(), clientConfig.getUseSystemPropertiesForHttpClientConnections());
 
-            jobj = handleResponseMap(responseMap, clientConfig, oidcClientRequest);
+            AccessTokenValidationResponse response = getValidationResponseFromMap(responseMap);
+            jobj = handleAccessTokenValidationResponse(response, clientConfig, oidcClientRequest);
             if (jobj != null) {
                 if (tc.isDebugEnabled()) {
                     Tr.debug(tc, "userinfo=", jobj.serialize());
@@ -661,18 +643,26 @@ public class AccessTokenAuthenticator {
         } // ffdc
     }
 
-    private boolean validateUserinfoJsonResponse(JSONObject jobj, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) {
-        String err = (String) jobj.get(Constants.ERROR);
+    boolean validateUserinfoJsonResponse(JSONObject claims, OidcClientConfig clientConfig, OidcClientRequest oidcClientRequest) {
+        // TODO
+        String err = (String) claims.get(Constants.ERROR);
         if (err != null) {
-            logErrorMessage(jobj, clientConfig, oidcClientRequest);
+            logErrorMessage(claims, clientConfig, oidcClientRequest);
             return false;
         }
+        // TODO
+        //        AccessTokenUserInfoJwsValidator validator = new AccessTokenUserInfoJwsValidator(jose4jUtil, clientConfig, oidcClientRequest);
+        //        JwtClaims claims = validator.validate(responseString);
+        //        if (claims != null) {
+        //            return JSONObject.parse(claims.toJson());
+        //        }
+        //
         // TODO - https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse
         // The sub (subject) Claim MUST always be returned in the UserInfo Response.
         // The sub Claim in the UserInfo Response MUST be verified to exactly match the sub Claim in the ID Token; if they do not match, the UserInfo Response values MUST NOT be used.
         // ayoho note: For propagated access tokens, we don't have an ID token - do we just verify that the sub claim is present?
         // If signed, the UserInfo Response SHOULD contain the Claims iss (issuer) and aud (audience) as members. The iss value SHOULD be the OP's Issuer Identifier URL. The aud value SHOULD be or include the RP's Client ID value.
-        String issuer = (String) jobj.get("iss");
+        String issuer = (String) claims.get("iss");
         String issuers = null;
         if (issuer != null) {
             if (issuer.isEmpty() ||

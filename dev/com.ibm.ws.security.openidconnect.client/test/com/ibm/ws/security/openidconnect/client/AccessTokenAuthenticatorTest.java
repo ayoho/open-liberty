@@ -59,6 +59,7 @@ import com.ibm.websphere.ssl.SSLConfigurationNotAvailableException;
 import com.ibm.websphere.ssl.SSLException;
 import com.ibm.ws.common.internal.encoder.Base64Coder;
 import com.ibm.ws.security.common.structures.SingleTableCache;
+import com.ibm.ws.security.openidconnect.client.internal.AccessTokenValidationResponse;
 import com.ibm.ws.security.openidconnect.clients.common.ClientConstants;
 import com.ibm.ws.security.openidconnect.clients.common.MockOidcClientRequest;
 import com.ibm.ws.security.openidconnect.clients.common.OidcClientConfig;
@@ -973,7 +974,7 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
     }
 
     @Test
-    public void testHandleResponseMap() throws Exception {
+    public void testHandleAccessTokenValidationResponse() throws Exception {
         final InputStream input = new ByteArrayInputStream(new String("").getBytes());
         final BasicHttpEntity entity = new BasicHttpEntity();
         entity.setContent(input);
@@ -1009,14 +1010,14 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue(failMsg));
             }
         });
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
 
-        respMap.put(ClientConstants.RESPONSEMAP_CODE, httpResponse);
-        JSONObject jsonObject = tokenAuth.handleResponseMap(respMap, clientConfig, clientRequest);
+        JSONObject jsonObject = tokenAuth.handleAccessTokenValidationResponse(response, clientConfig, clientRequest);
         assertNull("Expected to receive a null value but was received: " + jsonObject, jsonObject);
     }
 
     @Test
-    public void testHandleResponseMap_NullHeader() throws Exception {
+    public void testHandleAccessTokenValidationResponse_NullHeader() throws Exception {
         final InputStream input = new ByteArrayInputStream(new String("").getBytes());
         final BasicHttpEntity entity = new BasicHttpEntity();
         entity.setContent(input);
@@ -1046,9 +1047,9 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 one(clientRequest).setRsFailMsg(null, failMsg);
             }
         });
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
 
-        respMap.put(ClientConstants.RESPONSEMAP_CODE, httpResponse);
-        JSONObject jsonObject = tokenAuth.handleResponseMap(respMap, clientConfig, clientRequest);
+        JSONObject jsonObject = tokenAuth.handleAccessTokenValidationResponse(response, clientConfig, clientRequest);
         assertNull("Expected to receive a null value but was received: " + jsonObject, jsonObject);
     }
 
@@ -1060,7 +1061,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue(null));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNull("Result should have been null but was " + result + ".", result);
     }
 
@@ -1080,7 +1082,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue("doesn't matter"));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNull("Result should have been null but was " + result + ".", result);
     }
 
@@ -1104,7 +1107,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue("doesn't matter"));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNull("Result should have been null but was " + result + ".", result);
     }
 
@@ -1120,7 +1124,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue(entity));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNull("Result should have been null but was " + result + ".", result);
     }
 
@@ -1137,7 +1142,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue(entity));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNotNull("Result should not have been null but was.", result);
         assertTrue("Result should have been empty, but was " + result + ".", result.isEmpty());
     }
@@ -1157,7 +1163,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue(entity));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNotNull("Result should not have been null but was.", result);
         assertEquals("Result did not match the expected value.", responseJson, result);
     }
@@ -1177,7 +1184,8 @@ public class AccessTokenAuthenticatorTest extends CommonTestClass {
                 will(returnValue(entity));
             }
         });
-        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, httpResponse);
+        AccessTokenValidationResponse response = new AccessTokenValidationResponse(httpResponse);
+        JSONObject result = tokenAuth.extractSuccessfulResponse(clientConfig, clientRequest, response);
         assertNull("Result should have been null but was " + result + ".", result);
     }
 
