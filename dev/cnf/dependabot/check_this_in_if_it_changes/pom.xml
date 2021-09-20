@@ -2529,17 +2529,17 @@
     <dependency>
       <groupId>org.jboss.weld</groupId>
       <artifactId>weld-osgi-bundle</artifactId>
-      <version>2.4.8.Final</version>
+      <version>4.0.2.Final</version>
     </dependency>
     <dependency>
       <groupId>org.jboss.weld</groupId>
       <artifactId>weld-osgi-bundle</artifactId>
-      <version>3.1.7.SP1</version>
+      <version>4.0.2.Final</version>
     </dependency>
     <dependency>
       <groupId>org.jboss.weld</groupId>
       <artifactId>weld-osgi-bundle</artifactId>
-      <version>4.0.1.SP1</version>
+      <version>4.0.2.Final</version>
     </dependency>
     <dependency>
       <groupId>org.jmock</groupId>
