@@ -23,6 +23,7 @@ import componenttest.custom.junit.runner.AlwaysPassesTest;
         HttpMethodsTests.class,
         LogoutTokenCreationTests.class,
         LogoutTokenValidationTests.class,
+        SimpleEndToEndTests.class,
 //        ClientConfigTests.class,
 //        ServerConfigTests.class
 

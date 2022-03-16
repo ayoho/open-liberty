@@ -1,0 +1,169 @@
+
+<server>
+
+	<featureManager>
+		<feature>openidConnectClient-1.0</feature>
+	</featureManager>
+
+	<include location="${server.config.dir}/imports/rp_fatTestPorts.xml" />
+	<include location="${server.config.dir}/imports/signEncryptSSLSettings.xml" />
+	<include location="${server.config.dir}/imports/formlogin_1.xml" />
+
+	<authFilter id="filter_RP_HS256_opaqueAccessToken_client01">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_HS256_opaqueAccessToken_client01" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_HS256_opaqueAccessToken_client01"
+		clientId="client01"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="HS256"
+		sharedKey="secret"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_opaqueAccessToken/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_opaqueAccessToken/token"
+		authFilterRef="filter_RP_HS256_opaqueAccessToken_client01"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_HS256_opaqueAccessToken_client02">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_HS256_opaqueAccessToken_client02" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_HS256_opaqueAccessToken_client02"
+		clientId="client02"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="HS256"
+		sharedKey="secret"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_opaqueAccessToken/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_opaqueAccessToken/token"
+		authFilterRef="filter_RP_HS256_opaqueAccessToken_client02"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_HS256_jwtAccessToken_client01">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_HS256_jwtAccessToken_client01" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_HS256_jwtAccessToken_client01"
+		clientId="client01"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="HS256"
+		sharedKey="secret"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_jwtAccessToken/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_jwtAccessToken/token"
+		authFilterRef="filter_RP_HS256_jwtAccessToken_client01"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_HS256_jwtAccessToken_client02">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_HS256_jwtAccessToken_client02" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_HS256_jwtAccessToken_client02"
+		clientId="client02"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="HS256"
+		sharedKey="secret"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_jwtAccessToken/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_HS256_jwtAccessToken/token"
+		authFilterRef="filter_RP_HS256_jwtAccessToken_client02"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_RS256_jwk_client01">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_RS256_jwk_client01" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_RS256_jwk_client01"
+		clientId="client01"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="RS256"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_jwk/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_jwk/token"
+		jwkEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_jwk/jwk"
+		authFilterRef="filter_RP_RS256_jwk_client01"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_RS256_jwk_client02">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_RS256_jwk_client02" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_RS256_jwk_client02"
+		clientId="client02"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="RS256"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_jwk/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_jwk/token"
+		jwkEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_jwk/jwk"
+		authFilterRef="filter_RP_RS256_jwk_client02"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_RS256_keystore_client01">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_RS256_keystore_client01" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_RS256_keystore_client01"
+		clientId="client01"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="RS256"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_keystore/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_keystore/token"
+		trustStoreRef="trust_allSigAlg"
+		trustAliasName="rs256"
+		authFilterRef="filter_RP_RS256_keystore_client01"
+	>
+	</openidConnectClient>
+
+	<authFilter id="filter_RP_RS256_keystore_client02">
+		<requestUrl id="myRequestUrl" urlPattern="/simple/RP_RS256_keystore_client02" matchType="contains" />
+	</authFilter>
+	<openidConnectClient
+		id="RP_RS256_keystore_client02"
+		clientId="client02"
+		clientSecret="{xor}LDo8LTor"
+		signatureAlgorithm="RS256"
+		httpsRequired="false"
+		redirectToRPHostAndPort="http://localhost:${bvt.prop.security_2_HTTP_default}"
+		authorizationEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_keystore/authorize"
+		tokenEndpointUrl="http://localhost:${bvt.prop.security_1_HTTP_default}/oidc/endpoint/OP_RS256_keystore/token"
+		trustStoreRef="trust_allSigAlg"
+		trustAliasName="rs256"
+		authFilterRef="filter_RP_RS256_keystore_client02"
+	>
+	</openidConnectClient>
+
+	<sslDefault sslRef="DefaultSSLSettings" />
+	<ssl
+		id="DefaultSSLSettings"
+		keyStoreRef="myKeyStore"
+		trustStoreRef="myTrustStore"
+		clientAuthenticationSupported="true" />
+	<keyStore
+		id="myKeyStore"
+		password="Liberty"
+		type="jks"
+		location="${server.config.dir}/commonBasicKeyStore.jks" />
+	<keyStore
+		id="myTrustStore"
+		password="Liberty"
+		type="jks"
+		location="${server.config.dir}/commonTrustStore.jks" />
+
+	<webAppSecurity ssoCookieName="WAS_RP_SSO_cookie" />
+
+</server>

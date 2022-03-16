@@ -1098,17 +1098,20 @@ public class CommonValidationTools {
 
         String thisMethod = "getResponseFromOutput";
         msgUtils.printMethodName(thisMethod);
-        String theString = "Public Credential: {";
+        String theString = "Private Credential: {";
         Log.info(thisClass, thisMethod, " Searching for:  " + theString);
 
         try {
             String respReceived = AutomationTools.getResponseText(response);
-            int end = respReceived.indexOf("}");
+            if (!respReceived.contains(theString)) {
+                theString = "Public Credential: {";
+            }
+            int start = respReceived.indexOf(theString);
+            int end = respReceived.indexOf("}", start);
             if (respReceived.contains("userinfo_string")) {
                 end = respReceived.indexOf("}", end + 1); // need 2nd } , not 1st.
             }
-            String theValue = respReceived.substring(
-                    respReceived.indexOf(theString) + theString.length(), end);
+            String theValue = respReceived.substring(start + theString.length(), end);
             Log.info(thisClass, thisMethod, "The Line: " + theValue);
             if (!theValue.isEmpty()) {
                 return theValue;

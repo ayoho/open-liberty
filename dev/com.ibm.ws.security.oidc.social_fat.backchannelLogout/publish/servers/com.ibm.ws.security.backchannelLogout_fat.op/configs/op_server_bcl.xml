@@ -1,0 +1,207 @@
+<server>
+
+	<featureManager>
+		<feature>openidConnectServer-1.0</feature>
+	</featureManager>
+
+	<include location="${server.config.dir}/imports/op_fatTestPorts.xml" />
+	<include location="${server.config.dir}/imports/signEncryptSSLSettings.xml" />
+
+	<logging maxFiles="6" />
+
+	<basicRegistry id="basic" realm="BasicRealm">
+		<user name="testuser" password="testuserpwd" />
+		<user name="test" password="pwd" />
+		<user name="test2" password="pwd" />
+		<user name="test3" password="pwd" />
+		<group id="group1" name="group1" >
+			<member name="testuser" />
+			<member name="test" />
+			<member name="test2" />
+			<member name="test3" />
+		</group>
+	</basicRegistry>
+
+	<oauth-roles>
+		<authenticated>
+			<group name="group1" />
+		</authenticated>
+	</oauth-roles>
+
+	<openidConnectProvider
+		id="OP_HS256_opaqueAccessToken"
+		signatureAlgorithm="HS256"
+		oauthProviderRef="OAuth_HS256_opaqueAccessToken"
+		backchannelLogoutRequestTimeout="3s"
+	/>
+	<oauthProvider
+		id="OAuth_HS256_opaqueAccessToken"
+		httpsRequired="false"
+		autoAuthorize="true"
+	>
+		<autoAuthorizeClient>client01</autoAuthorizeClient>
+		<autoAuthorizeClient>client02</autoAuthorizeClient>
+		<localStore>
+			<client
+				name="client01"
+				secret="{xor}LDo8LTor"
+				displayname="client01"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_HS256_opaqueAccessToken_client01"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="https://localhost:${bvt.prop.security_2_HTTP_default.secure}/oidcclient/backchannel_logout/RP_HS256_opaqueAccessToken_client01"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+			<client
+				name="client02"
+				secret="{xor}LDo8LTor"
+				displayname="client02"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_HS256_opaqueAccessToken_client02"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/backchannel_logout/RP_HS256_opaqueAccessToken_client02"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+		</localStore>
+	</oauthProvider>
+
+	<openidConnectProvider
+		id="OP_HS256_jwtAccessToken"
+		signatureAlgorithm="HS256"
+		oauthProviderRef="OAuth_HS256_jwtAccessToken"
+		backchannelLogoutRequestTimeout="3s"
+	/>
+	<oauthProvider
+		id="OAuth_HS256_jwtAccessToken"
+		httpsRequired="false"
+		autoAuthorize="true"
+		tokenFormat="jwt"
+	>
+		<autoAuthorizeClient>client01</autoAuthorizeClient>
+		<autoAuthorizeClient>client02</autoAuthorizeClient>
+		<localStore>
+			<client
+				name="client01"
+				secret="{xor}LDo8LTor"
+				displayname="client01"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_HS256_jwtAccessToken_client01"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="https://localhost:${bvt.prop.security_2_HTTP_default.secure}/oidcclient/backchannel_logout/RP_HS256_jwtAccessToken_client01"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+			<client
+				name="client02"
+				secret="{xor}LDo8LTor"
+				displayname="client02"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_HS256_jwtAccessToken_client02"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/backchannel_logout/RP_HS256_jwtAccessToken_client02"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+		</localStore>
+	</oauthProvider>
+
+	<openidConnectProvider
+		id="OP_RS256_jwk"
+		signatureAlgorithm="RS256"
+		oauthProviderRef="OAuth_RS256_jwk"
+		jwkEnabled="true"
+		backchannelLogoutRequestTimeout="3s"
+	/>
+	<oauthProvider
+		id="OAuth_RS256_jwk"
+		httpsRequired="false"
+		autoAuthorize="true"
+	>
+		<autoAuthorizeClient>client01</autoAuthorizeClient>
+		<autoAuthorizeClient>client02</autoAuthorizeClient>
+		<localStore>
+			<client
+				name="client01"
+				secret="{xor}LDo8LTor"
+				displayname="client01"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_RS256_jwk_client01"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="https://localhost:${bvt.prop.security_2_HTTP_default.secure}/oidcclient/backchannel_logout/RP_RS256_jwk_client01"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+			<client
+				name="client02"
+				secret="{xor}LDo8LTor"
+				displayname="client02"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_RS256_jwk_client02"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/backchannel_logout/RP_RS256_jwk_client02"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+		</localStore>
+	</oauthProvider>
+
+	<openidConnectProvider
+		id="OP_RS256_keystore"
+		signatureAlgorithm="RS256"
+		oauthProviderRef="OAuth_RS256_keystore"
+		keyStoreRef="key_allSigAlg"
+		keyAliasName="rs256"
+		backchannelLogoutRequestTimeout="3s"
+	/>
+	<oauthProvider
+		id="OAuth_RS256_keystore"
+		httpsRequired="false"
+		autoAuthorize="true"
+	>
+		<autoAuthorizeClient>client01</autoAuthorizeClient>
+		<autoAuthorizeClient>client02</autoAuthorizeClient>
+		<localStore>
+			<client
+				name="client01"
+				secret="{xor}LDo8LTor"
+				displayname="client01"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_RS256_keystore_client01"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="https://localhost:${bvt.prop.security_2_HTTP_default.secure}/oidcclient/backchannel_logout/RP_RS256_keystore_client01"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+			<client
+				name="client02"
+				secret="{xor}LDo8LTor"
+				displayname="client02"
+				redirect="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/redirect/RP_RS256_keystore_client02"
+				scope="ALL_SCOPES"
+				introspectTokens="true"
+				backchannelLogoutUri="http://localhost:${bvt.prop.security_2_HTTP_default}/oidcclient/backchannel_logout/RP_RS256_keystore_client02"
+				backchannelLogoutSessionRequired="true"
+				enabled="true" />
+		</localStore>
+	</oauthProvider>
+
+	<sslDefault sslRef="DefaultSSLSettings" />
+	<ssl
+		id="DefaultSSLSettings"
+		keyStoreRef="myKeyStore"
+		trustStoreRef="myTrustStore"
+		clientAuthenticationSupported="true" />
+	<keyStore
+		id="myKeyStore"
+		password="Liberty"
+		type="jks"
+		location="${server.config.dir}/commonBasicKeyStore.jks" />
+	<keyStore
+		id="myTrustStore"
+		password="Liberty"
+		type="jks"
+		location="${server.config.dir}/commonTrustStore.jks" />
+
+	<httpSession cookieHttpOnly="false" />
+
+	<webAppSecurity
+		httpOnlyCookies="false"
+		allowFailOverToBasicAuth="true"
+		ssoCookieName="WAS_OP_SSO_cookie" />
+
+</server>
