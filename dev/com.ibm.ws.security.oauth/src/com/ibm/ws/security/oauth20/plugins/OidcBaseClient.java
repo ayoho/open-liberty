@@ -147,7 +147,7 @@ public class OidcBaseClient extends BaseClient implements Serializable, OidcOAut
     @Expose
     @Beta
     @SerializedName(SN_BACKCHANNEL_LOGOUT_SESSION_REQUIRED)
-    private boolean backchannelLogoutSessionRequired = false;
+    private final boolean backchannelLogoutSessionRequired = false;
 
     public OidcBaseClient(String clientId,
             @Sensitive String clientSecret,
@@ -448,16 +448,6 @@ public class OidcBaseClient extends BaseClient implements Serializable, OidcOAut
         this.backchannelLogoutUri = backchannelLogoutUri;
     }
 
-    @Override
-    public boolean isBackchannelLogoutSessionRequired() {
-        return backchannelLogoutSessionRequired;
-    }
-
-    @Trivial
-    public void setBackchannelLogoutSessionRequired(boolean backchannelLogoutSessionRequired) {
-        this.backchannelLogoutSessionRequired = backchannelLogoutSessionRequired;
-    }
-
     @Trivial
     public OidcBaseClient getDeepCopy() {
         // RTC246290
@@ -495,7 +485,6 @@ public class OidcBaseClient extends BaseClient implements Serializable, OidcOAut
         dc.setIterations(this.getIterations());
         dc.setLength(this.getLength());
         dc.setBackchannelLogoutUri(this.backchannelLogoutUri);
-        dc.setBackchannelLogoutSessionRequired(this.backchannelLogoutSessionRequired);
         return dc;
     }
 
