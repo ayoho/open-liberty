@@ -31,6 +31,7 @@ import com.ibm.websphere.security.jwt.Claims;
 import com.ibm.ws.security.jwt.config.ConsumerUtils;
 import com.ibm.ws.security.openidconnect.backchannellogout.BackchannelLogoutException;
 import com.ibm.ws.security.openidconnect.clients.common.ConvergedClientConfig;
+import com.ibm.ws.security.openidconnect.clients.common.OidcSessionCache;
 import com.ibm.ws.security.openidconnect.token.IDTokenValidationFailedException;
 import com.ibm.ws.security.test.common.CommonTestClass;
 
@@ -67,6 +68,7 @@ public class LogoutTokenValidatorTest extends CommonTestClass {
 
     final ConvergedClientConfig clientConfig = mockery.mock(ConvergedClientConfig.class);
     final ConsumerUtils consumerUtils = mockery.mock(ConsumerUtils.class);
+    final OidcSessionCache oidcSessionCache = mockery.mock(OidcSessionCache.class);
 
     LogoutTokenValidator validator;
 
@@ -83,6 +85,8 @@ public class LogoutTokenValidatorTest extends CommonTestClass {
             {
                 allowing(clientConfig).getId();
                 will(returnValue(CONFIG_ID));
+                allowing(clientConfig).getOidcSessionCache();
+                will(returnValue(oidcSessionCache));
             }
         });
     }

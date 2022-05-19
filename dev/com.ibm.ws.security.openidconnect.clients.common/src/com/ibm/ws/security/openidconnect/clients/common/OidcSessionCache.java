@@ -11,6 +11,7 @@
 package com.ibm.ws.security.openidconnect.clients.common;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Interface for cache used to keep track of oidc sessions based on the sub, sid, and the oidc session id.
@@ -25,9 +26,9 @@ public interface OidcSessionCache {
     public boolean insertSession(OidcSessionInfo oidcSessionInfo);
 
     /**
-     * Returns the map of all sessions included in the cache.
+     * Returns the map of issuers to OidcSessionInfo.
      */
-    public Map<String, ?> getAllSessions();
+    public Map<String, Set<OidcSessionInfo>> getIssMap();
 
     /**
      * Invalidate a session in the cache.

@@ -75,10 +75,8 @@ public class InMemoryOidcSessionCache implements OidcSessionCache {
     }
 
     @Override
-    public Map<String, ?> getAllSessions() {
-        Map<String, OidcSessionsStore> allSessions = new HashMap<>();
-        allSessions.putAll(subToOidcSessionsMap);
-        return allSessions;
+    public Map<String, Set<OidcSessionInfo>> getIssMap() {
+        return issMap;
     }
 
     @Override
