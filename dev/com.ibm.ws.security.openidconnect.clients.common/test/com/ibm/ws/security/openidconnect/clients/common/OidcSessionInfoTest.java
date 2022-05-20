@@ -18,39 +18,41 @@ import org.junit.Test;
 /**
  *
  */
-public class OidcSessionHelperTest {
+public class OidcSessionInfoTest {
 
     @Test
     public void test_createSessionId() {
         String configId = "testConfigId";
+        String iss = "https://localhost";
         String sub = "testSub";
         String sid = "testSid";
         String timestamp = "12345";
 
-        String actualSessionId = OidcSessionHelper.createSessionId(configId, sub, sid, timestamp);
-        String expectedSesssionId = "dGVzdENvbmZpZ0lkLHRlc3RTdWIsdGVzdFNpZCwxMjM0NQ==";
+        OidcSessionInfo sessionInfo = new OidcSessionInfo(configId, iss, sub, sid, timestamp);
+        String expectedSesssionId = "ZEdWemRFTnZibVpwWjBsazphSFIwY0hNNkx5OXNiMk5oYkdodmMzUT06ZEdWemRGTjFZZz09OmRHVnpkRk5wWkE9PToxMjM0NQ==";
 
-        assertEquals("Should have concatenated the parts using ',' and then base64 encoding the result.", expectedSesssionId, actualSessionId);
+        assertEquals("Should have base64 encoded and then concatenated the parts using ':'.", expectedSesssionId, sessionInfo.getSessionId());
     }
 
     @Test
     public void test_createSessionId_emptySid() {
         String configId = "testConfigId";
+        String iss = "https://localhost";
         String sub = "testSub";
         String sid = "";
         String timestamp = "12345";
 
-        String actualSessionId = OidcSessionHelper.createSessionId(configId, sub, sid, timestamp);
-        String expectedSesssionId = "dGVzdENvbmZpZ0lkLHRlc3RTdWIsLDEyMzQ1";
+        OidcSessionInfo sessionInfo = new OidcSessionInfo(configId, iss, sub, sid, timestamp);
+        String expectedSesssionId = "ZEdWemRFTnZibVpwWjBsazphSFIwY0hNNkx5OXNiMk5oYkdodmMzUT06ZEdWemRGTjFZZz09OjoxMjM0NQ==";
 
-        assertEquals("Should have concatenated the parts using ',' and then base64 encoding the result.", expectedSesssionId, actualSessionId);
+        assertEquals("Should have base64 encoded and then concatenated the parts using ':'.", expectedSesssionId, sessionInfo.getSessionId());
     }
 
     @Test
     public void test_getSessionInfo() {
-        String sessionId = "dGVzdENvbmZpZ0lkLHRlc3RTdWIsdGVzdFNpZCwxMjM0NQ==";
+        String sessionId = "ZEdWemRFTnZibVpwWjBsazphSFIwY0hNNkx5OXNiMk5oYkdodmMzUT06ZEdWemRGTjFZZz09OmRHVnpkRk5wWkE9PToxMjM0NQ==";
 
-        OidcSessionInfo sessionInfo = OidcSessionHelper.getSessionInfo(sessionId);
+        OidcSessionInfo sessionInfo = OidcSessionInfo.getSessionInfo(sessionId);
 
         assertEquals("testConfigId", sessionInfo.getConfigId());
         assertEquals("testSub", sessionInfo.getSub());
@@ -60,9 +62,9 @@ public class OidcSessionHelperTest {
 
     @Test
     public void test_getSessinoInfo_sidWasEmpty() {
-        String sessionId = "dGVzdENvbmZpZ0lkLHRlc3RTdWIsLDEyMzQ1";
+        String sessionId = "ZEdWemRFTnZibVpwWjBsazphSFIwY0hNNkx5OXNiMk5oYkdodmMzUT06ZEdWemRGTjFZZz09OjoxMjM0NQ==";
 
-        OidcSessionInfo sessionInfo = OidcSessionHelper.getSessionInfo(sessionId);
+        OidcSessionInfo sessionInfo = OidcSessionInfo.getSessionInfo(sessionId);
 
         assertEquals("testConfigId", sessionInfo.getConfigId());
         assertEquals("testSub", sessionInfo.getSub());
@@ -74,7 +76,7 @@ public class OidcSessionHelperTest {
     public void test_getSessionInfo_sessionIdIsNull() {
         String sessionId = null;
 
-        OidcSessionInfo sessionInfo = OidcSessionHelper.getSessionInfo(sessionId);
+        OidcSessionInfo sessionInfo = OidcSessionInfo.getSessionInfo(sessionId);
 
         assertNull("Expected the sessionInfo to be null, since the sessionId was invalid.", sessionInfo);
     }
@@ -83,16 +85,16 @@ public class OidcSessionHelperTest {
     public void test_getSessionInfo_sessionIdIsEmpty() {
         String sessionId = "";
 
-        OidcSessionInfo sessionInfo = OidcSessionHelper.getSessionInfo(sessionId);
+        OidcSessionInfo sessionInfo = OidcSessionInfo.getSessionInfo(sessionId);
 
         assertNull("Expected the sessionInfo to be null, since the sessionId was invalid.", sessionInfo);
     }
 
     @Test
     public void test_getSessionInfo_decodedSessionIdDoesNotHaveFourParts() {
-        String sessionId = "dGVzdENvbmZpZ0lkLHRlc3RTdWI=";
+        String sessionId = "ZEdWemRFTnZibVpwWjBsazphSFIwY0hNNkx5OXNiMk5oYkdodmMzUT0=";
 
-        OidcSessionInfo sessionInfo = OidcSessionHelper.getSessionInfo(sessionId);
+        OidcSessionInfo sessionInfo = OidcSessionInfo.getSessionInfo(sessionId);
 
         assertNull("Expected the sessionInfo to be null, since the sessionId was invalid.", sessionInfo);
     }
@@ -101,7 +103,7 @@ public class OidcSessionHelperTest {
     public void test_getSessionInfo_sessionIdIsInvalid() {
         String sessionId = "invalidSessionId";
 
-        OidcSessionInfo sessionInfo = OidcSessionHelper.getSessionInfo(sessionId);
+        OidcSessionInfo sessionInfo = OidcSessionInfo.getSessionInfo(sessionId);
 
         assertNull("Expected the sessionInfo to be null, since the sessionId was invalid.", sessionInfo);
     }
