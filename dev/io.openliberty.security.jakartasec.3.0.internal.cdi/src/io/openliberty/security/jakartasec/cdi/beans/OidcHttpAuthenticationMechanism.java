@@ -23,9 +23,11 @@ import com.ibm.ws.webcontainer.security.ProviderAuthenticationResult;
 
 import io.openliberty.security.jakartasec.JakartaSec30Constants;
 import io.openliberty.security.jakartasec.OpenIdAuthenticationMechanismDefinitionWrapper;
+import io.openliberty.security.oidcclientcore.authentication.AuthorizationCodeFlow;
 import io.openliberty.security.oidcclientcore.client.Client;
 import io.openliberty.security.oidcclientcore.client.ClientManager;
 import io.openliberty.security.oidcclientcore.exceptions.AuthenticationResponseException;
+import io.openliberty.security.oidcclientcore.exceptions.TokenRequestException;
 import io.openliberty.security.oidcclientcore.token.TokenResponse;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Default;
@@ -176,6 +178,8 @@ public class OidcHttpAuthenticationMechanism implements HttpAuthenticationMechan
             status = processContinueFlowResult(providerAuthenticationResult, httpMessageContext);
         } catch (AuthenticationResponseException e) {
             status = httpMessageContext.notifyContainerAboutLogin(getCredentialValidationResultFromException(e));
+        } catch (TokenRequestException e) {
+            status = httpMessageContext.notifyContainerAboutLogin(CredentialValidationResult.INVALID_RESULT);
         }
 
         return status;
@@ -215,7 +219,7 @@ public class OidcHttpAuthenticationMechanism implements HttpAuthenticationMechan
 
         Hashtable<String, Object> customProperties = providerAuthenticationResult.getCustomProperties();
         if (customProperties != null) {
-            TokenResponse tokenResponse = (TokenResponse) customProperties.get("TOKEN_RESPONSE");
+            TokenResponse tokenResponse = (TokenResponse) customProperties.get(AuthorizationCodeFlow.AUTH_RESULT_CUSTOM_PROP_TOKEN_RESPONSE);
             if (tokenResponse != null) {
                 // TODO: credential = new OidcTokensCredential(client, tokenResponse, userinfoResponse);
                 credential = new Credential() {

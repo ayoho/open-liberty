@@ -29,4 +29,9 @@ public class SessionBasedStorage implements Storage {
         return null;
     }
 
+    @Override
+    public void remove(String name) {
+        // TODO
+    }
+
 }
