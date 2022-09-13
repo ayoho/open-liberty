@@ -19,6 +19,9 @@ import io.openliberty.security.oidcclientcore.authentication.AbstractFlow;
 import io.openliberty.security.oidcclientcore.authentication.Flow;
 import io.openliberty.security.oidcclientcore.exceptions.AuthenticationResponseException;
 import io.openliberty.security.oidcclientcore.exceptions.TokenRequestException;
+import io.openliberty.security.oidcclientcore.token.TokenResponse;
+import io.openliberty.security.oidcclientcore.token.TokenResponseValidator;
+import io.openliberty.security.oidcclientcore.token.TokenValidationException;
 
 public class Client {
 
@@ -36,6 +39,12 @@ public class Client {
     public ProviderAuthenticationResult continueFlow(HttpServletRequest request, HttpServletResponse response) throws AuthenticationResponseException, TokenRequestException {
         Flow flow = AbstractFlow.getInstance(oidcClientConfig);
         return flow.continueFlow(request, response);
+    }
+    
+    public boolean validate(TokenResponse tokenResponse) throws TokenValidationException {
+        TokenResponseValidator tokenResponseValidator = new TokenResponseValidator(this.oidcClientConfig);
+        tokenResponseValidator.validate(tokenResponse);
+        return false;
     }
 
     public void logout() {
