@@ -10,11 +10,6 @@
  *******************************************************************************/
 package io.openliberty.data.internal.persistence;
 
-import java.util.function.Consumer;
-import java.util.stream.Collector;
-
-import jakarta.data.Pagination;
-
 /**
  */
 class QueryInfo {
@@ -22,54 +17,65 @@ class QueryInfo {
         COUNT, DELETE, EXISTS, MERGE, SELECT, UPDATE
     }
 
-    final Collector<Object, Object, Object> collector;
-    final Consumer<Object> consumer;
+    /**
+     * Information about the type of entity to which the query pertains.
+     */
     final EntityInfo entityInfo;
+
+    /**
+     * Generated JPQL for the query. Null if a save operation.
+     */
     final String jpql;
-    final Pagination pagination;
-    final int paramCount;
+
+    /**
+     * Array element type if the repository method returns an array, such as,
+     * <code>Product[] findByNameLike(String namePattern);</code>
+     * or if its parameterized type is an array, such as,
+     * <code>CompletableFuture&lt;Product[]&gt; findByNameLike(String namePattern);</code>
+     * Otherwise null.
+     */
     final Class<?> returnArrayType;
+
+    /**
+     * Type parameter of the repository method return value.
+     * Null if the return type is not parameterized or is generic.
+     * This is useful in cases such as
+     * <code>&#64;Query(...) Optional&lt;Float&gt; priceOf(String productId)</code>
+     * and
+     * <code>CompletableFuture&lt;Stream&lt;Product&gt&gt; findByNameLike(String namePattern)</code>
+     */
+    final Class<?> returnTypeParam;
+
+    /**
+     * Type of the first parameter to a save operation. Null if not a save operation.
+     */
     final Class<?> saveParamType;
+
+    /**
+     * Categorization of query type.
+     */
     final Type type;
 
-    QueryInfo(String jpql, int paramCount, EntityInfo entityInfo, Pagination pagination,
-              Collector<Object, Object, Object> collector, Consumer<Object> consumer,
-              Class<?> saveParamType, Class<?> returnArrayType) {
+    QueryInfo(Type type, String jpql, EntityInfo entityInfo,
+              Class<?> saveParamType, Class<?> returnArrayType, Class<?> returnParamType) {
         this.jpql = jpql;
-        this.paramCount = paramCount;
         this.entityInfo = entityInfo;
-        this.pagination = pagination;
-        this.collector = collector;
-        this.consumer = consumer;
         this.returnArrayType = returnArrayType;
+        this.returnTypeParam = returnParamType;
         this.saveParamType = saveParamType;
 
-        if (jpql == null) {
-            type = Type.MERGE;
-        } else {
+        if (type == null) {
             String q = jpql.toUpperCase();
             if (q.startsWith("SELECT"))
-                type = Type.SELECT;
+                this.type = Type.SELECT;
             else if (q.startsWith("UPDATE"))
-                type = Type.UPDATE;
+                this.type = Type.UPDATE;
             else if (q.startsWith("DELETE"))
-                type = Type.DELETE;
+                this.type = Type.DELETE;
             else
                 throw new UnsupportedOperationException(jpql);
+        } else {
+            this.type = type;
         }
-    }
-
-    QueryInfo(String jpql, int paramCount, EntityInfo entityInfo, Pagination pagination,
-              Collector<Object, Object, Object> collector, Consumer<Object> consumer,
-              Class<?> saveParamType, Class<?> returnArrayType, Type type) {
-        this.jpql = jpql;
-        this.paramCount = paramCount;
-        this.entityInfo = entityInfo;
-        this.pagination = pagination;
-        this.collector = collector;
-        this.consumer = consumer;
-        this.returnArrayType = returnArrayType;
-        this.saveParamType = saveParamType;
-        this.type = type;
     }
 }

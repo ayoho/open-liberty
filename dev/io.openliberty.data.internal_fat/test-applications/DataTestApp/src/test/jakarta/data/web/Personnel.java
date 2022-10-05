@@ -15,11 +15,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 import java.util.stream.Collector;
+import java.util.stream.Stream;
 
 import jakarta.data.Delete;
-import jakarta.data.Limit;
-import jakarta.data.Paginated;
-import jakarta.data.Result;
+import jakarta.data.Pageable;
+import jakarta.data.Query;
 import jakarta.data.Select;
 import jakarta.data.Update;
 import jakarta.data.Where;
@@ -35,7 +35,6 @@ import jakarta.enterprise.concurrent.Asynchronous;
 @Repository
 public interface Personnel {
     @Asynchronous
-    @Result(Integer.class)
     @Update("o.lastName = ?2")
     @Where("o.lastName = ?1 AND o.ssn IN ?3")
     CompletionStage<Integer> changeSurnames(String oldSurname, String newSurname, List<Long> ssnList);
@@ -48,18 +47,24 @@ public interface Personnel {
     void findByLastNameOrderByFirstNameDesc(String lastName, Consumer<String> callback);
 
     @Asynchronous
-    @Paginated(4)
-    CompletableFuture<Void> findByOrderBySsnDesc(Consumer<Person> callback);
+    CompletableFuture<Void> findByOrderBySsnDesc(Consumer<Person> callback, Pageable pagination);
 
     @Asynchronous
-    @Limit(1) // indicates single result (rather than list) for the completion stage
     CompletableFuture<Person> findBySsn(long ssn);
+
+    @Asynchronous
+    @Query("SELECT o.firstName FROM Person o WHERE o.lastName=?1 ORDER BY o.firstName")
+    CompletableFuture<Stream<String>> firstNames(String lastName);
+
+    @Asynchronous
+    @Query("SELECT DISTINCT o.lastName FROM Person o ORDER BY o.lastName")
+    CompletionStage<String[]> lastNames();
 
     @Asynchronous
     @Select("firstName")
     @Where("o.firstName LIKE CONCAT(?1, '%')")
-    @Paginated(3)
     CompletableFuture<Long> namesThatStartWith(String beginningOfFirstName,
+                                               Pageable pagination,
                                                Collector<String, ?, Long> collector);
 
     // An alternative to the above would be to make the Collector class a parameter
@@ -78,7 +83,6 @@ public interface Personnel {
     long setSurname(String newSurname, long ssn);
 
     @Asynchronous
-    @Result(Boolean.class)
     @Update("o.lastName = ?1")
     @Where("o.ssn = ?2")
     CompletableFuture<Boolean> setSurnameAsync(String newSurname, long ssn);

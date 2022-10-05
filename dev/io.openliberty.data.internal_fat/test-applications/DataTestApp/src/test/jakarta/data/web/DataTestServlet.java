@@ -50,9 +50,8 @@ import jakarta.annotation.Resource;
 import jakarta.data.Entities;
 import jakarta.data.MappingException;
 import jakarta.data.Page;
-import jakarta.data.Pagination;
+import jakarta.data.Pageable;
 import jakarta.data.Sort;
-import jakarta.data.Sorts;
 import jakarta.data.Template;
 import jakarta.inject.Inject;
 import jakarta.servlet.annotation.WebServlet;
@@ -251,9 +250,24 @@ public class DataTestServlet extends FATServlet {
         assertEquals("Ben", names.poll(TIMEOUT_MINUTES, TimeUnit.MINUTES));
         assertEquals("Alexander", names.poll(TIMEOUT_MINUTES, TimeUnit.MINUTES));
 
+        // Async find as CompletableFuture<Stream<String>>
+        CompletableFuture<Stream<String>> futureStream = personnel.firstNames("TestAsynchronous");
+        assertIterableEquals(List.of("Alexander", "Ben", "Betty", "Brian"),
+                             futureStream.get(TIMEOUT_MINUTES, TimeUnit.MINUTES).collect(Collectors.toList()));
+
+        // Async find as CompletionStage<String[]>
+        names.clear();
+        personnel.lastNames().thenAccept(lastNames -> {
+            for (String lastName : lastNames)
+                names.add(lastName);
+        }).toCompletableFuture().get(TIMEOUT_MINUTES, TimeUnit.MINUTES);
+        assertEquals("Test-Asynchronous", names.poll());
+        assertEquals("TestAsynchronous", names.poll());
+        assertEquals(null, names.poll());
+
         // Paginated async find with Consumer and CompletableFuture to track completion
         Queue<Long> ids = new LinkedList<Long>();
-        CompletableFuture<Void> allFound = personnel.findByOrderBySsnDesc(p -> ids.add(p.ssn));
+        CompletableFuture<Void> allFound = personnel.findByOrderBySsnDesc(p -> ids.add(p.ssn), Pageable.of(1, 4));
 
         assertEquals(null, allFound.get(TIMEOUT_MINUTES, TimeUnit.MINUTES));
         assertEquals(Long.valueOf(p10.ssn), ids.poll());
@@ -280,7 +294,7 @@ public class DataTestServlet extends FATServlet {
 
         // Have a collector reduce the results to a count of names.
         // The database could have done this instead, but it makes a nice, simple example.
-        CompletableFuture<Long> countOfANames = personnel.namesThatStartWith("A", Collectors.counting());
+        CompletableFuture<Long> countOfANames = personnel.namesThatStartWith("A", Pageable.of(1, 3), Collectors.counting());
 
         assertEquals(Long.valueOf(6), countOfANames.get(TIMEOUT_MINUTES, TimeUnit.MINUTES));
 
@@ -289,7 +303,7 @@ public class DataTestServlet extends FATServlet {
                                                                                   Collectors.maxBy(Comparator.<String, Integer> comparing(n -> n.length())),
                                                                                   n -> n.isPresent() ? n.get().length() : -1L);
 
-        CompletableFuture<Long> maxLengthOfAnyAName = personnel.namesThatStartWith("A", maxLengthFinder);
+        CompletableFuture<Long> maxLengthOfAnyAName = personnel.namesThatStartWith("A", Pageable.of(1, 3), maxLengthFinder);
 
         assertEquals(Long.valueOf(9), maxLengthOfAnyAName.get(TIMEOUT_MINUTES, TimeUnit.MINUTES));
 
@@ -306,7 +320,7 @@ public class DataTestServlet extends FATServlet {
                                                                  },
                                                                  len -> len[COUNT] == 0 ? 0 : (len[SUM] / len[COUNT]));
 
-        CompletableFuture<Long> avgLengthOfBNames = personnel.namesThatStartWith("B", lengthAverager);
+        CompletableFuture<Long> avgLengthOfBNames = personnel.namesThatStartWith("B", Pageable.of(1, 3), lengthAverager);
 
         assertEquals(Long.valueOf(4), avgLengthOfBNames.get(TIMEOUT_MINUTES, TimeUnit.MINUTES));
 
@@ -638,10 +652,15 @@ public class DataTestServlet extends FATServlet {
         joe.lastName = "TestFindMultiple";
         joe.ssn = 987654321;
 
+        Person jude = new Person();
+        jude.firstName = "Jude";
+        jude.lastName = "Test-FindMultiple";
+        jude.ssn = 11235813;
+
         tran.begin();
         try {
-            people.save(jane);
-            people.save(joe);
+            people.save(List.of(jane, joe));
+            people.save(List.of(jude));
         } finally {
             if (tran.getStatus() == Status.STATUS_MARKED_ROLLBACK)
                 tran.rollback();
@@ -668,6 +687,11 @@ public class DataTestServlet extends FATServlet {
         assertEquals(p2expected.lastName, p2.lastName);
         assertEquals(p2expected.firstName, p2.firstName);
         assertEquals(p2expected.ssn, p2.ssn);
+
+        found = people.find("Test-FindMultiple");
+        assertNotNull(found);
+        assertEquals(1, found.size());
+        assertEquals(jude.ssn, found.get(0).ssn);
     }
 
     /**
@@ -836,7 +860,7 @@ public class DataTestServlet extends FATServlet {
                              tariffs.findByLeviedAgainst("Canada").map(o -> o.leviedOn).sorted().collect(Collectors.toList()));
 
         // Iterator with paging:
-        Iterator<Tariff> it = tariffs.findByLeviedAgainstLessThanOrderByKeyDesc("M");
+        Iterator<Tariff> it = tariffs.findByLeviedAgainstLessThanOrderByKeyDesc("M", Pageable.of(1, 3));
 
         Tariff t;
         assertEquals(true, it.hasNext());
@@ -869,7 +893,7 @@ public class DataTestServlet extends FATServlet {
         assertEquals(false, it.hasNext());
 
         // Paginated iterator with no results:
-        it = tariffs.findByLeviedAgainstLessThanOrderByKeyDesc("A");
+        it = tariffs.findByLeviedAgainstLessThanOrderByKeyDesc("A", Pageable.of(1, 3));
         assertEquals(false, it.hasNext());
 
         t = tariffs.findByLeviedByAndLeviedAgainstAndLeviedOn("USA", "Bangladesh", "Textiles");
@@ -878,19 +902,19 @@ public class DataTestServlet extends FATServlet {
         // List return type for Pagination only represents a single page, not all pages.
         // page 1:
         assertIterableEquals(List.of("China", "Germany", "India", "Japan"),
-                             tariffs.findByLeviedByOrderByKey("USA", Pagination.page(1).size(4))
+                             tariffs.findByLeviedByOrderByKey("USA", Pageable.of(1, 4))
                                              .stream()
                                              .map(o -> o.leviedAgainst)
                                              .collect(Collectors.toList()));
         // page 2:
         assertIterableEquals(List.of("Canada", "Bangladesh", "Mexico", "Canada"),
-                             tariffs.findByLeviedByOrderByKey("USA", Pagination.page(2).size(4))
+                             tariffs.findByLeviedByOrderByKey("USA", Pageable.of(2, 4))
                                              .stream()
                                              .map(o -> o.leviedAgainst)
                                              .collect(Collectors.toList()));
 
         // Random access to paginated list:
-        List<Tariff> list = tariffs.findByLeviedByOrderByKey("USA", Pagination.page(1).size(20));
+        List<Tariff> list = tariffs.findByLeviedByOrderByKey("USA", Pageable.page(1));
         assertEquals(t4.leviedAgainst, list.get(3).leviedAgainst);
         assertEquals(t7.leviedAgainst, list.get(6).leviedAgainst);
         assertEquals(t2.leviedAgainst, list.get(1).leviedAgainst);
@@ -1279,13 +1303,12 @@ public class DataTestServlet extends FATServlet {
                                              .map(r -> r.meetingID)
                                              .collect(Collectors.toList()));
 
-        // Reverse ordering to the above using Sorts:
+        // Reverse ordering to the above using Sort:
         assertIterableEquals(List.of(10030008L, 10030004L, 10030009L, 10030006L, 10030003L, 10030002L, 10030007L, 10030005L, 10030001L),
                              reservations.findByStopLessThan(OffsetDateTime.of(2022, 5, 26, 0, 0, 0, 0, CDT),
-                                                             Sorts.sorts()
-                                                                             .add(Sort.desc("host"))
-                                                                             .add(Sort.asc("location"))
-                                                                             .add(Sort.desc("start")))
+                                                             Sort.desc("host"),
+                                                             Sort.asc("location"),
+                                                             Sort.desc("start"))
                                              .stream()
                                              .map(r -> r.meetingID)
                                              .collect(Collectors.toList()));
@@ -1376,7 +1399,7 @@ public class DataTestServlet extends FATServlet {
 
         // Paging where the final page includes less than the maximum page size,
         Page<Reservation> page1 = reservations.findByHostStartsWith("testRepositoryCustom-host",
-                                                                    Pagination.page(1).size(4),
+                                                                    Pageable.of(1, 4),
                                                                     Sort.desc("meetingID"));
         assertIterableEquals(List.of(10030009L, 10030008L, 10030007L, 10030006L),
                              page1
@@ -1399,7 +1422,7 @@ public class DataTestServlet extends FATServlet {
 
         // Paging that comes out even:
         page2 = reservations.findByHostStartsWith("testRepositoryCustom-host",
-                                                  Pagination.page(2).size(3),
+                                                  Pageable.of(2, 3),
                                                   Sort.desc("meetingID"));
         assertIterableEquals(List.of(10030006L, 10030005L, 10030004L),
                              page2
