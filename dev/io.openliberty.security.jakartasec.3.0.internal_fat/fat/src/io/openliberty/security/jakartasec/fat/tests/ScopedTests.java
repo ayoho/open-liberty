@@ -16,11 +16,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import com.gargoylesoftware.htmlunit.Page;
 import com.gargoylesoftware.htmlunit.WebClient;
-import com.ibm.ws.security.fat.common.actions.TestActions;
-import com.ibm.ws.security.fat.common.expectations.Expectations;
-import com.ibm.ws.security.fat.common.expectations.ServerMessageExpectation;
 import com.ibm.ws.security.fat.common.utils.SecurityFatHttpUtils;
 
 import componenttest.annotation.Server;
@@ -36,9 +32,9 @@ import io.openliberty.security.jakartasec.fat.utils.ShrinkWrapHelpers;
  */
 @SuppressWarnings("restriction")
 @RunWith(FATRunner.class)
-public class SimplestAnnotatedTest extends CommonAnnotatedSecurityTests {
+public class ScopedTests extends CommonAnnotatedSecurityTests {
 
-    protected static Class<?> thisClass = SimplestAnnotatedTest.class;
+    protected static Class<?> thisClass = ScopedTests.class;
 
     @Server("io.openliberty.security.jakartasec-3.0_fat.op")
     public static LibertyServer opServer;
@@ -85,6 +81,7 @@ public class SimplestAnnotatedTest extends CommonAnnotatedSecurityTests {
 
         swh = new ShrinkWrapHelpers(opHttpBase, opHttpsBase, rpHttpBase, rpHttpsBase);
         // deploy the apps that are defined 100% by the source code tree
+        // TODO - Use correct apps for different scopes
         swh.defaultDropinApp(rpServer, "SimpleServlet.war", "oidc.client.base.*");
         swh.defaultDropinApp(rpServer, "OnlyProviderInAnnotation.war", "oidc.simple.client.onlyProvider.servlets", "oidc.client.base.*");
         swh.defaultDropinApp(rpServer, "SimplestAnnotated.war", "oidc.simple.client.servlets", "oidc.client.base.*");
@@ -98,66 +95,6 @@ public class SimplestAnnotatedTest extends CommonAnnotatedSecurityTests {
     /****************************************************************************************************************/
     /* Tests */
     /****************************************************************************************************************/
-    /**
-     * Test an unprotected app
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testSimplestAnnotatedServlet_unprotected() throws Exception {
-
-        WebClient webClient = getAndSaveWebClient();
-
-        String app = "SimpleServlet";
-        String url = rpHttpsBase + "/SimpleServlet/" + app;
-
-        //show that we get to the test app without having to log in
-        Expectations expectations = getGotToTheAppExpectations(TestActions.ACTION_INVOKE_PROTECTED_RESOURCE, app, url);
-
-        Page response = actions.invokeUrl(_testName, webClient, url);
-
-        validationUtils.validateResult(response, expectations);
-
-    }
-
-    @Test
-    public void testSimplestAnnotatedServlet_withoutEL() throws Exception {
-
-        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
-        // if we end up using a different port, we'll need to skip this test
-
-        runGoodEndToEndTest("SimplestAnnotated", "OidcAnnotatedServlet");
-
-    }
-
-    @Test
-    public void testSimplestAnnotatedServlet_WithEL() throws Exception {
-
-        runGoodEndToEndTest("SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL");
-
-    }
-
-    /**
-     * Test deplying an app that has multiple annotations embedded - we should see a failure trying to deploy it.
-     *
-     * @throws Exception
-     */
-    //@Test
-    public void testSimplestAnnotatedServlet_multiple_OpenIdAuthenticationMechanismDefinition_annotations_inTheSameWar() throws Exception {
-
-        swh.defaultDropinApp(rpServer, "SimplestAnnotatedWithAndWithoutEL" + ".war", "oidc.simple.client.withAndWithoutEL.servlets", "oidc.client.base.*");
-
-        Expectations deployExpectations = new Expectations();
-        deployExpectations
-                .addExpectation(new ServerMessageExpectation(rpServer, "someMessage", "Message log did not contain an error indicating that the War contained multiple \"@OpenIdAuthenticationMechanismDefinition\" annotations."));
-        validationUtils.validateResult(deployExpectations);
-
-    }
-
-    public void testSimplestAnnotatedServlet_ServletUsesCallbackFromAnotherApp() throws Exception {
-
-        // TODO Placeholder for new test - need a new app and need to determine what the behavior should be
-    }
 
     /**
      * Use the same app with different users and different sessions - should use different contexts and show the proper users for
@@ -166,19 +103,17 @@ public class SimplestAnnotatedTest extends CommonAnnotatedSecurityTests {
      * @throws Exception
      */
     @Test
-    public void testSimplestAnnotatedServlet_multipleDifferentUsers() throws Exception {
+    public void testSimplestAnnotatedServlet_multipleDifferentUsers_SessionScoped() throws Exception {
 
         // the test app has the OP secure port hard coded (since it doesn't use expression language vars
         // if we end up using a different port, we'll need to skip this test
 
         WebClient webClient1 = getAndSaveWebClient();
-        Page response1 = runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
 
         rspValues.setSubject("user1");
         WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
-        Page response2 = runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
-
-        validateNotTheSame("Callback", response1, response2);
+        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
 
     }
 
@@ -189,18 +124,59 @@ public class SimplestAnnotatedTest extends CommonAnnotatedSecurityTests {
      * @throws Exception
      */
     @Test
-    public void testSimplestAnnotatedServlet_multipleSameUser() throws Exception {
+    public void testSimplestAnnotatedServlet_multipleSmeUsers_SessionScoped() throws Exception {
 
         // the test app has the OP secure port hard coded (since it doesn't use expression language vars
         // if we end up using a different port, we'll need to skip this test
 
         WebClient webClient1 = getAndSaveWebClient();
-        Page response1 = runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
 
+        rspValues.setSubject("user1");
         WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
-        Page response2 = runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
 
-        validateNotTheSame("Callback", response1, response2);
+    }
+
+    /**
+     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
+     * each instance
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSimplestAnnotatedServlet_multipleDifferentUsers_ApplicationScoped() throws Exception {
+
+        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
+        // if we end up using a different port, we'll need to skip this test
+
+        WebClient webClient1 = getAndSaveWebClient();
+        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        rspValues.setSubject("user1");
+        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
+        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
+
+    }
+
+    /**
+     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
+     * each instance
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSimplestAnnotatedServlet_multipleSmeUsers_ApplicationScoped() throws Exception {
+
+        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
+        // if we end up using a different port, we'll need to skip this test
+
+        WebClient webClient1 = getAndSaveWebClient();
+        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        rspValues.setSubject("user1");
+        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
+        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
 
     }
 

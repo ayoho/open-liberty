@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.client.base.servlets;
 
@@ -36,9 +36,16 @@ public class BaseCallbackServlet extends HttpServlet {
         OpenIdContextLogger contextLogger = new OpenIdContextLogger(request, response, "Callback", context);
         contextLogger.printLine(ps, "Class: " + this.getClass().getName());
 
+        contextLogger.printLine(ps, "got here");
+
         contextLogger.logContext(ps);
 
-        contextLogger.printLine(ps, "got here");
+        if (context != null) {
+            // TODO need 22727 fixed before we can enable the next line without getting an NPE
+            //            Optional<String> originalRequest = context.getStoredValue(request, response, OpenIdConstant.ORIGINAL_REQUEST);
+            //            String originalRequestString = originalRequest.get();
+            //            response.sendRedirect(originalRequestString);
+        }
     }
 
 }

@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.client.minimumAnnotation.servlets;
 
@@ -20,13 +20,14 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
+import oidc.client.base.utils.OpenIdContextLogger;
 
 @WebServlet("/MinimumAnnotationServlet")
 @OpenIdAuthenticationMechanismDefinition(
                                          providerURI = "${providerBean.providerSecureRoot}/oidc/endpoint/OP1",
                                          clientId = "client_1",
                                          clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger",
-                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "sub"),
+                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "sub", callerGroupsClaim = "groupIds"),
                                          redirectURI = "${providerBean.clientSecureRoot}/MinimumAnnotation/Callback")
 @DeclareRoles("all")
 @ServletSecurity(@HttpConstraint(rolesAllowed = "all"))
@@ -34,11 +35,10 @@ public class MinimumAnnotationServlet extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
 
-        super.recordHelloWorld(output);
-        System.out.println("Hello world from MinimumAnnotationServlet");
-        output.println("Hello world from MinimumAnnotationServlet!");
+        super.recordHelloWorld(outputStream, contextLogger);
+        contextLogger.printLine(outputStream, "Hello world from MinimumAnnotationServlet");
 
     }
 }

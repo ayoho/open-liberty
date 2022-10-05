@@ -21,13 +21,15 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
+import oidc.client.base.utils.OpenIdContextLogger;
 
 @WebServlet("/OidcAnnotatedServletWithEL")
 @OpenIdAuthenticationMechanismDefinition(
                                          providerURI = "https://localhost:8920/oidc/endpoint/OP1",
                                          clientId = "client_1",
                                          clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger",
-                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}"),
+                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}",
+                                                                              callerGroupsClaim = "${openIdConfig.callerGroupsClaim}"),
 //                                         redirectURI = "https://localhost:8940/SimplestAnnotatedWithAndWithoutEL/Callback",
                                          redirectURI = "${providerBean.clientSecureRoot}/SimplestAnnotatedWithAndWithoutEL/Callback",
                                          providerMetadata = @OpenIdProviderMetadata(
@@ -39,11 +41,10 @@ public class OidcAnnotatedServletWithEL extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
 
-        super.recordHelloWorld(output);
-        System.out.println("Hello world from OidcAnnotatedServletWithEL");
-        output.println("Hello world from OidcAnnotatedServletWithEL!");
+        super.recordHelloWorld(outputStream, contextLogger);
+        contextLogger.printLine(outputStream, "Hello world from OidcAnnotatedServletWithEL");
 
     }
 

@@ -19,6 +19,7 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
+import oidc.client.base.utils.OpenIdContextLogger;
 
 @WebServlet("/OnlyProviderInAnnotationServlet")
 @OpenIdAuthenticationMechanismDefinition(
@@ -29,11 +30,10 @@ public class OnlyProviderInAnnotationServlet extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
 
-        super.recordHelloWorld(output);
-        System.out.println("Hello world from OnlyProviderInAnnotationServlet");
-        output.println("Hello world from OnlyProviderInAnnotationServlet!");
+        super.recordHelloWorld(outputStream, contextLogger);
+        contextLogger.printLine(outputStream, "Hello world from OnlyProviderInAnnotationServlet");
 
     }
 }

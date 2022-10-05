@@ -21,6 +21,7 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
+import oidc.client.base.utils.OpenIdContextLogger;
 
 //@Value("#{systemProperties['REP_MAN_INIT_SCRIPT']}")
 // TODO: Use a bean to get providerURI since port is dynamic
@@ -31,7 +32,7 @@ import oidc.client.base.servlets.SimpleServlet;
                                          providerURI = "https://localhost:8920/oidc/endpoint/OP1",
                                          clientId = "client_1",
                                          clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger",
-                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}"),
+                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}", callerGroupsClaim = "groupIds"),
                                          redirectURI = "https://localhost:8940/SimplestAnnotatedWithAndWithoutEL/Callback",
                                          providerMetadata = @OpenIdProviderMetadata(
                                                                                     authorizationEndpoint = "https://localhost:8920/oidc/endpoint/OP1/authorize",
@@ -42,11 +43,10 @@ public class OidcAnnotatedServlet extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
 
-        super.recordHelloWorld(output);
-        System.out.println("Hello world from OidcAnnotatedServlet");
-        output.println("Hello world from OidcAnnotatedServlet!");
+        super.recordHelloWorld(outputStream, contextLogger);
+        contextLogger.printLine(outputStream, "Hello world from OidcAnnotatedServlet");
 
     }
 

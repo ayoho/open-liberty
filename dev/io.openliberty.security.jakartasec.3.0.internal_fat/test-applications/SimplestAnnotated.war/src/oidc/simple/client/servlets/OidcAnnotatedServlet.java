@@ -21,13 +21,14 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
+import oidc.client.base.utils.OpenIdContextLogger;
 
 @WebServlet("/OidcAnnotatedServlet")
 @OpenIdAuthenticationMechanismDefinition(
                                          providerURI = "${providerBean.providerSecureRoot}/oidc/endpoint/OP1",
                                          clientId = "client_1",
                                          clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger",
-                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "sub"),
+                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "sub", callerGroupsClaim = "groupIds"),
                                          useSession = false,
 //                                         redirectURI = "${providerBean.clientSecureRoot}/SimplestAnnotated/Callback",
                                          redirectURI = "${baseURL}/Callback",
@@ -40,11 +41,11 @@ public class OidcAnnotatedServlet extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
 
-        super.recordHelloWorld(output);
-        System.out.println("Hello world from OidcAnnotatedServlet");
-        output.println("Hello world from OidcAnnotatedServlet!");
+        super.recordHelloWorld(outputStream, contextLogger);
+        contextLogger.printLine(outputStream, "Hello world from OidcAnnotatedServlet");
 
     }
+
 }

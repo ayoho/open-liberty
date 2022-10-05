@@ -6,22 +6,30 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package io.openliberty.security.jakartasec.fat.utils;
 
 public class ServletMessageConstants {
 
-    /** field names */
+    /** Values **/
+    public static final String NULL = "null";
+    public static final String NULL_CLAIMS = "Claims are null";
+
+    /** Field names */
+    public static final String CLAIM = "Claim: ";
+    public static final String KEY = "Key: ";
+    public static final String VALUE = "Value: ";
     public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
     public static final String CLAIMS_SUBJECT = "Claims Subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
-//    public static final String CONTEXT_SUBJECT = "OpenIdContext subject: ";
+    public static final String ACCESS_TOKEN = "Access Token: ";
+    public static final String ID_TOKEN = "Identity Token: ";
+    public static final String REFRESH_TOKEN = "Refresh Token: ";
+    public static final String RAW = "(raw): ";
+    public static final String JSON_CLAIMS = "Json Claims: ";
+    public static final String EXPIRES_IN = "Expires In: ";
+    public static final String TOKEN_TYPE = "Token Type: ";
+    public static final String STORED_VALUE = "StoredValue: ";
 
     /** messages **/
     public static final String SUBS_MISMATCH_NULL = "OpenIdContext subjects do NOT match since there are no claims";
