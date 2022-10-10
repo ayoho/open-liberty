@@ -15,7 +15,9 @@ import java.util.Map;
 import java.util.Optional;
 
 import io.openliberty.security.jakartasec.fat.utils.ServletMessageConstants;
+import jakarta.json.JsonArray;
 import jakarta.json.JsonObject;
+import jakarta.json.JsonValue;
 import jakarta.security.enterprise.identitystore.openid.AccessToken;
 import jakarta.security.enterprise.identitystore.openid.IdentityToken;
 import jakarta.security.enterprise.identitystore.openid.OpenIdClaims;
@@ -43,14 +45,15 @@ public class OpenIdContextLogger {
 
     public void logContext(ServletOutputStream ps) throws IOException {
 
-        printLine(ps, caller, "Recording the content of the OpenIdContext");
+        ServletLogger.printSeparator(ps);
+        ServletLogger.printLine(ps, caller, "Recording the content of the OpenIdContext");
 
         if (context == null) {
-            printLine(ps, caller, "OpenIdContext: null");
+            ServletLogger.printLine(ps, caller, "OpenIdContext: null");
             return;
 
         }
-        printLine(ps, caller, "OpenIdContext: " + context);
+        ServletLogger.printLine(ps, caller, "OpenIdContext: " + context);
 
         /*
          * // Method descriptor #18 ()Ljakarta/json/JsonObject;
@@ -66,6 +69,8 @@ public class OpenIdContextLogger {
          * jakarta.servlet.http.HttpServletResponse arg1, java.lang.String arg2);
          * }
          */
+
+        //      logProviderMetadata(ps);
 
         logSubject(ps);
 
@@ -87,33 +92,35 @@ public class OpenIdContextLogger {
 
         // TODO what can we validate with getStoredValue???
         logStoredValues(ps);
+
+        ServletLogger.printSeparator(ps);
     }
 
     protected void logSubject(ServletOutputStream ps) throws IOException {
 
         String claimsSub = null;
         String contextSub = context.getSubject();
-        printLine(ps, caller, ServletMessageConstants.CONTEXT_SUBJECT + contextSub);
+        ServletLogger.printLine(ps, caller, ServletMessageConstants.CONTEXT_SUBJECT + contextSub);
 
         OpenIdClaims claims = context.getClaims();
         if (claims != null) {
             claimsSub = claims.getSubject();
-            printLine(ps, caller, ServletMessageConstants.CLAIMS_SUBJECT + claimsSub);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.CLAIMS_SUBJECT + claimsSub);
         } else {
-            printLine(ps, caller, ServletMessageConstants.SUBS_MISMATCH_NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.SUBS_MISMATCH_NULL);
         }
 
         // compare context subject to cliams subject???
         if (contextSub == null && claimsSub == null) {
-            printLine(ps, caller, ServletMessageConstants.SUBS_MISMATCH_BOTH_NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.SUBS_MISMATCH_BOTH_NULL);
         } else {
             if (claimsSub == null) {
-                printLine(ps, caller, ServletMessageConstants.SUBS_CLAIMS_SUB_NULL + contextSub);
+                ServletLogger.printLine(ps, caller, ServletMessageConstants.SUBS_CLAIMS_SUB_NULL + contextSub);
             } else {
                 if (claimsSub.equals(contextSub)) {
-                    printLine(ps, caller, ServletMessageConstants.SUBS_MATCH);
+                    ServletLogger.printLine(ps, caller, ServletMessageConstants.SUBS_MATCH);
                 } else {
-                    printLine(ps, caller, ServletMessageConstants.SUBS_MISMATCH_PART1 + claimsSub + ServletMessageConstants.SUBS_MISMATCH_PART2 + contextSub);
+                    ServletLogger.printLine(ps, caller, ServletMessageConstants.SUBS_MISMATCH_PART1 + claimsSub + ServletMessageConstants.SUBS_MISMATCH_PART2 + contextSub);
                 }
             }
         }
@@ -125,12 +132,13 @@ public class OpenIdContextLogger {
         AccessToken accessToken = context.getAccessToken();
         if (accessToken != null) {
             Map<String, Object> atClaims = accessToken.getClaims();
-            printLine(ps, caller, ServletMessageConstants.ACCESS_TOKEN + accessToken.toString());
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.ACCESS_TOKEN + accessToken.toString());
             for (Map.Entry<String, Object> entry : atClaims.entrySet()) {
-                printLine(ps, caller, ServletMessageConstants.ACCESS_TOKEN + ServletMessageConstants.CLAIM + ServletMessageConstants.KEY + entry.getKey() + ServletMessageConstants.VALUE + entry.getValue());
+                ServletLogger.printLine(ps, caller, ServletMessageConstants.ACCESS_TOKEN + ServletMessageConstants.CLAIM + ServletMessageConstants.KEY + entry.getKey()
+                                                    + ServletMessageConstants.VALUE + entry.getValue());
             }
         } else {
-            printLine(ps, caller, ServletMessageConstants.ACCESS_TOKEN + ServletMessageConstants.NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.ACCESS_TOKEN + ServletMessageConstants.NULL);
         }
     }
 
@@ -139,13 +147,14 @@ public class OpenIdContextLogger {
         IdentityToken idToken = context.getIdentityToken();
         if (idToken != null) {
             Map<String, Object> idClaims = idToken.getClaims();
-            printLine(ps, caller, ServletMessageConstants.ID_TOKEN + idToken.toString());
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.ID_TOKEN + idToken.toString());
             for (Map.Entry<String, Object> entry : idClaims.entrySet()) {
-                printLine(ps, caller, "Identity Token: Claim: Key: " + entry.getKey() + " Value: " + entry.getValue());
-                printLine(ps, caller, ServletMessageConstants.ID_TOKEN + ServletMessageConstants.CLAIM + ServletMessageConstants.KEY + entry.getKey() + ServletMessageConstants.VALUE + entry.getValue());
+                ServletLogger.printLine(ps, caller, "Identity Token: Claim: Key: " + entry.getKey() + " Value: " + entry.getValue());
+                ServletLogger.printLine(ps, caller, ServletMessageConstants.ID_TOKEN + ServletMessageConstants.CLAIM + ServletMessageConstants.KEY + entry.getKey()
+                                                    + ServletMessageConstants.VALUE + entry.getValue());
             }
         } else {
-            printLine(ps, caller, ServletMessageConstants.ID_TOKEN + ServletMessageConstants.NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.ID_TOKEN + ServletMessageConstants.NULL);
         }
     }
 
@@ -154,10 +163,10 @@ public class OpenIdContextLogger {
         Optional<RefreshToken> refreshToken = context.getRefreshToken();
         if (refreshToken != null) {
             RefreshToken tokenContent = refreshToken.get();
-            printLine(ps, caller, ServletMessageConstants.REFRESH_TOKEN + ServletMessageConstants.RAW + tokenContent.toString());
-            printLine(ps, caller, ServletMessageConstants.REFRESH_TOKEN + tokenContent.getToken());
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.REFRESH_TOKEN + ServletMessageConstants.RAW + tokenContent.toString());
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.REFRESH_TOKEN + tokenContent.getToken());
         } else {
-            printLine(ps, caller, ServletMessageConstants.REFRESH_TOKEN + ServletMessageConstants.NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.REFRESH_TOKEN + ServletMessageConstants.NULL);
         }
     }
 
@@ -165,11 +174,11 @@ public class OpenIdContextLogger {
 
         JsonObject claimsJson = context.getClaimsJson();
         if (claimsJson != null) {
-            printLine(ps, caller, ServletMessageConstants.JSON_CLAIMS + claimsJson.toString());
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.JSON_CLAIMS + claimsJson.toString());
             // TODO update once I can see what the data really looks like
             //for (String key : claims.get)
         } else {
-            printLine(ps, caller, ServletMessageConstants.JSON_CLAIMS + ServletMessageConstants.NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.JSON_CLAIMS + ServletMessageConstants.NULL);
         }
     }
 
@@ -177,17 +186,17 @@ public class OpenIdContextLogger {
 
         Optional<Long> expiresIn = context.getExpiresIn();
         if (expiresIn != null) {
-            printLine(ps, caller, ServletMessageConstants.EXPIRES_IN + expiresIn.toString());
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.EXPIRES_IN + expiresIn.toString());
             // TODO update once we see what're we're getting and what else we could to with the value.
         } else {
-            printLine(ps, caller, ServletMessageConstants.EXPIRES_IN + ServletMessageConstants.NULL);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.EXPIRES_IN + ServletMessageConstants.NULL);
         }
 
     }
 
     protected void logTokenType(ServletOutputStream ps) throws IOException {
 
-        printLine(ps, caller, ServletMessageConstants.TOKEN_TYPE + context.getTokenType());
+        ServletLogger.printLine(ps, caller, ServletMessageConstants.TOKEN_TYPE + context.getTokenType());
 
     }
 
@@ -196,7 +205,7 @@ public class OpenIdContextLogger {
         // TODO - do something with this
         OpenIdClaims claims = context.getClaims();
         if (claims == null) {
-            printLine(ps, caller, ServletMessageConstants.NULL_CLAIMS);
+            ServletLogger.printLine(ps, caller, ServletMessageConstants.NULL_CLAIMS);
         }
         // TODO - do something with the claims - many individual get methods...
 
@@ -205,7 +214,7 @@ public class OpenIdContextLogger {
     protected void logStoredValues(ServletOutputStream ps) throws IOException {
 
         //        logStoredValue(ps, OpenIdConstant.ORIGINAL_REQUEST);
-        //        logStoredValue(ps, OpenIdConstant.SUBJECT_IDENTIFIER); is throwing an npe
+        //        logStoredValue(ps, OpenIdConstant.SUBJECT_IDENTIFIER);
         //        logStoredValue(ps, OpenIdConstant.CLIENT_ID);
         //        logStoredValue(ps, OpenIdConstant.CLIENT_SECRET);
 
@@ -217,20 +226,31 @@ public class OpenIdContextLogger {
         System.out.println("resp: " + resp);
         System.out.println("storedValue: " + storedValue);
 
-        printLine(ps, caller, ServletMessageConstants.STORED_VALUE + storedValue + ":" + context.getStoredValue(req, resp, storedValue));
+        ServletLogger.printLine(ps, caller, ServletMessageConstants.STORED_VALUE + storedValue + ":" + context.getStoredValue(req, resp, storedValue));
 
     }
 
-    protected void printLine(ServletOutputStream ps, String caller, String msg) throws IOException {
+    public void logProviderMetadata(ServletOutputStream ps) throws IOException {
 
-        printLine(ps, caller + ": " + msg);
+        JsonObject pmd = context.getProviderMetadata();
 
-    }
+        JsonArray pmdArray = pmd.asJsonArray();
 
-    public void printLine(ServletOutputStream ps, String msg) throws IOException {
-
-        System.out.println(msg);
-        ps.println(msg);
+        JsonValue boo = pmdArray.get(0);
 
     }
+
+    //    protected void printLine(ServletOutputStream ps, String caller, String msg) throws IOException {
+    //
+    //        ServletLogger.printLine(ps, caller + ": " + msg);
+    //
+    //    }
+    //
+    //    public void printLine(ServletOutputStream ps, String msg) throws IOException {
+    //
+    //        System.out.println(msg);
+    //        ps.println(msg);
+    //
+    //    }
+
 }

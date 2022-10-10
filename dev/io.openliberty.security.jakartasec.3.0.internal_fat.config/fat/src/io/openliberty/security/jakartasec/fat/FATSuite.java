@@ -26,11 +26,11 @@ import io.openliberty.security.jakartasec.fat.tests.ConfigurationTests;
 
 @RunWith(Suite.class)
 @SuiteClasses({
-        AlwaysPassesTest.class,
-        ConfigurationTests.class,
-        ConfigurationClaimsDefinitionTests.class,
-        ConfigurationELValuesOverrideTests.class,
-        ConfigurationELValuesOverrideWithoutHttpSessionTests.class
+                AlwaysPassesTest.class,
+                ConfigurationTests.class,
+                ConfigurationClaimsDefinitionTests.class,
+                ConfigurationELValuesOverrideTests.class,
+                ConfigurationELValuesOverrideWithoutHttpSessionTests.class
 })
 public class FATSuite {
 

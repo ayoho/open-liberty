@@ -13,6 +13,9 @@ bVersion=1.0
 
 src: \
     fat/src,\
+    test-applications/ApplicationScoped.war/src,\
+    test-applications/RequestScoped.war/src,\
+    test-applications/SessionScoped.war/src,\
     test-applications/SimpleUnprotected.war/src,\
     test-applications/SimplestAnnotated.war/src,\
     test-applications/SimplestAnnotatedWithEL.war/src,\

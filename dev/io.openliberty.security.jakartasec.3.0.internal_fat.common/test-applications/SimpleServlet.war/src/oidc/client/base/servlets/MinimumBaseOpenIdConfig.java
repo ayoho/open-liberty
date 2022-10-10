@@ -88,8 +88,7 @@ public class MinimumBaseOpenIdConfig {
 
     public String getProviderBase() {
 
-        String value = "Must be set in openIdConfig.properties before it can be used";
-        ;
+        String value = "Must be set in openIdConfig.properties before it can be used";;
         if (config.containsKey(Constants.PROVIDER_BASE)) {
             value = getStringValue(Constants.PROVIDER_BASE);
         }

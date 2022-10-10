@@ -20,7 +20,7 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
-import oidc.client.base.utils.OpenIdContextLogger;
+import oidc.client.base.utils.ServletLogger;
 
 // TODO - Make sure all possible attrs using EL values
 @WebServlet("/ClaimsDefinitionServlet")
@@ -36,10 +36,10 @@ public class ClaimsDefinitionServlet extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream) throws IOException {
 
-        super.recordHelloWorld(outputStream, contextLogger);
-        contextLogger.printLine(outputStream, "Hello world from ClaimsDefinitionServlet");
+        super.recordHelloWorld(outputStream);
+        ServletLogger.printLine(outputStream, "Hello world from ClaimsDefinitionServlet");
 
     }
 }

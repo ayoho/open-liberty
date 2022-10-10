@@ -11,10 +11,8 @@
 package oidc.client.base.servlets;
 
 import java.io.IOException;
-import java.util.Enumeration;
-import java.util.Map;
-import java.util.Map.Entry;
 
+import io.openliberty.security.jakartasec.fat.utils.ServletMessageConstants;
 import jakarta.inject.Inject;
 import jakarta.security.enterprise.identitystore.openid.OpenIdContext;
 import jakarta.servlet.ServletException;
@@ -24,6 +22,9 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import oidc.client.base.utils.OpenIdContextLogger;
+import oidc.client.base.utils.RequestLogger;
+import oidc.client.base.utils.ServletLogger;
+import oidc.client.base.utils.WSSubjectLogger;
 
 @WebServlet("/SimpleServlet")
 public class SimpleServlet extends HttpServlet {
@@ -41,33 +42,27 @@ public class SimpleServlet extends HttpServlet {
 
         ServletOutputStream outputStream = response.getOutputStream();
 
-        OpenIdContextLogger contextLogger = new OpenIdContextLogger(request, response, "Callback", context);
-        contextLogger.printLine(outputStream, "Class: " + this.getClass().getName());
+        ServletLogger.printLine(outputStream, "Class: " + this.getClass().getName());
+        ServletLogger.printLine(outputStream, "got here");
 
-        contextLogger.printLine(outputStream, "got here");
+        RequestLogger requestLogger = new RequestLogger(request, ServletMessageConstants.SERVLET + ServletMessageConstants.REQUEST);
+        requestLogger.printRequest(outputStream);
 
+        OpenIdContextLogger contextLogger = new OpenIdContextLogger(request, response, ServletMessageConstants.SERVLET + ServletMessageConstants.OPENID_CONTEXT, context);
         contextLogger.logContext(outputStream);
 
-        recordHelloWorld(outputStream, contextLogger);
+        WSSubjectLogger subjectLogger = new WSSubjectLogger(request, ServletMessageConstants.SERVLET + ServletMessageConstants.WSSUBJECT);
+        subjectLogger.printProgrammaticApiValues(outputStream);
 
-        Map<String, String[]> parmMap = request.getParameterMap();
-        for (Entry<String, String[]> p : parmMap.entrySet()) {
-            contextLogger.printLine(outputStream, "SimpleServlet: Parm: Key: " + p.getKey() + " Value: " + p.getValue());
-        }
-        Enumeration<String> headerNames = request.getHeaderNames();
-        headerNames.asIterator().forEachRemaining(header -> {
-            try {
-                contextLogger.printLine(outputStream, "SimpleServlet: Header: key: " + header + "   " + " Value: " + request.getHeader(header));
-            } catch (IOException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
-            }
-        });
+        recordHelloWorld(outputStream);
+
     }
 
-    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream) throws IOException {
 
-        contextLogger.printLine(outputStream, "Hello world from SimpleServlet");
+        ServletLogger.printLine(outputStream, "Hello world from SimpleServlet");
+        ServletLogger.printLine(outputStream, this.getClass().getSuperclass().getName());
+        ServletLogger.printLine(outputStream, this.getClass().getName());
 
     }
 }

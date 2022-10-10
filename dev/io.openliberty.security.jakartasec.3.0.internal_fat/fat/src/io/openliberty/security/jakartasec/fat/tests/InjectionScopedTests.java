@@ -13,17 +13,20 @@ package io.openliberty.security.jakartasec.fat.tests;
 import java.util.List;
 
 import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import com.gargoylesoftware.htmlunit.Page;
 import com.gargoylesoftware.htmlunit.WebClient;
+import com.ibm.ws.security.fat.common.actions.SecurityTestRepeatAction;
 import com.ibm.ws.security.fat.common.utils.SecurityFatHttpUtils;
 
 import componenttest.annotation.Server;
 import componenttest.custom.junit.runner.FATRunner;
+import componenttest.rules.repeater.RepeatTests;
 import componenttest.topology.impl.LibertyServer;
 import io.openliberty.security.jakartasec.fat.commonTests.CommonAnnotatedSecurityTests;
-import io.openliberty.security.jakartasec.fat.configs.TestConfigMaps;
 import io.openliberty.security.jakartasec.fat.utils.Constants;
 import io.openliberty.security.jakartasec.fat.utils.ShrinkWrapHelpers;
 
@@ -32,21 +35,31 @@ import io.openliberty.security.jakartasec.fat.utils.ShrinkWrapHelpers;
  */
 @SuppressWarnings("restriction")
 @RunWith(FATRunner.class)
-public class ScopedTests extends CommonAnnotatedSecurityTests {
+public class InjectionScopedTests extends CommonAnnotatedSecurityTests {
 
-    protected static Class<?> thisClass = ScopedTests.class;
-
-    @Server("io.openliberty.security.jakartasec-3.0_fat.op")
-    public static LibertyServer opServer;
-    @Server("io.openliberty.security.jakartasec-3.0_fat.rp")
-    public static LibertyServer rpServer;
+    protected static Class<?> thisClass = InjectionScopedTests.class;
 
     protected static ShrinkWrapHelpers swh = null;
+
+    @Server("jakartasec-3.0_fat.op")
+    public static LibertyServer opServer;
+    @Server("jakartasec-3.0_fat.jwt.rp")
+    public static LibertyServer rpJwtServer;
+    @Server("jakartasec-3.0_fat.opaque.rp")
+    public static LibertyServer rpOpaqueServer;
+
+    public static LibertyServer rpServer;
+
+    @ClassRule
+    public static RepeatTests r = RepeatTests.with(new SecurityTestRepeatAction(Constants.JWT_TOKEN_FORMAT)).andWith(new SecurityTestRepeatAction(Constants.OPAQUE_TOKEN_FORMAT));
 
     @BeforeClass
     public static void setUp() throws Exception {
 
         transformAppsInDefaultDirs(opServer, "dropins");
+
+        // write property that is used to configure the OP to generate JWT or Opaque tokens
+        rpServer = setTokenTypeInBootstrap(opServer, rpJwtServer, rpOpaqueServer);
 
         // Add servers to server trackers that will be used to clean servers up and prevent servers
         // from being restored at the end of each test (so far, the tests are not reconfiguring the servers)
@@ -81,20 +94,104 @@ public class ScopedTests extends CommonAnnotatedSecurityTests {
 
         swh = new ShrinkWrapHelpers(opHttpBase, opHttpsBase, rpHttpBase, rpHttpsBase);
         // deploy the apps that are defined 100% by the source code tree
-        // TODO - Use correct apps for different scopes
-        swh.defaultDropinApp(rpServer, "SimpleServlet.war", "oidc.client.base.*");
-        swh.defaultDropinApp(rpServer, "OnlyProviderInAnnotation.war", "oidc.simple.client.onlyProvider.servlets", "oidc.client.base.*");
-        swh.defaultDropinApp(rpServer, "SimplestAnnotated.war", "oidc.simple.client.servlets", "oidc.client.base.*");
-        swh.defaultDropinApp(rpServer, "SimplestAnnotatedWithEL.war", "oidc.simple.client.withEL.servlets", "oidc.client.base.*");
-
-        // deploy the apps that will be updated at runtime (now) (such as deploying the same app runtime with different embedded configs)
-        swh.deployConfigurableTestApps(rpServer, "newApp2.war", "GenericOIDCAuthMechanism.war", TestConfigMaps.getTest1(), "oidc.simple.client.generic.servlets", "oidc.client.base.*");
+        swh.defaultDropinApp(rpServer, "ApplicationScoped.war", "oidc.simple.client.applicationScoped.servlets", "oidc.client.base.*");
+        swh.defaultDropinApp(rpServer, "RequestScoped.war", "oidc.simple.client.requestScoped.servlets", "oidc.client.base.*");
+        swh.defaultDropinApp(rpServer, "SessionScoped.war", "oidc.simple.client.sessionScoped.servlets", "oidc.client.base.*");
 
     }
 
     /****************************************************************************************************************/
     /* Tests */
     /****************************************************************************************************************/
+    /**
+     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
+     * each instance
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSimplestAnnotatedServlet_multipleDifferentUsers_ApplicationScoped() throws Exception {
+
+        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
+        // if we end up using a different port, we'll need to skip this test
+
+        WebClient webClient1 = getAndSaveWebClient();
+        Page response1 = runGoodEndToEndTest(webClient1, "ApplicationScoped", "ApplicationScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        rspValues.setSubject("user1");
+        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
+        Page response2 = runGoodEndToEndTest(webClient2, "ApplicationScoped", "ApplicationScopedServlet", "user1", "user1pwd");
+
+        validateNotTheSame("Callback", response1, response2);
+
+    }
+
+    /**
+     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
+     * each instance
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSimplestAnnotatedServlet_multipleSameUsers_ApplicationScoped() throws Exception {
+
+        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
+        // if we end up using a different port, we'll need to skip this test
+
+        WebClient webClient1 = getAndSaveWebClient();
+        Page response1 = runGoodEndToEndTest(webClient1, "ApplicationScoped", "ApplicationScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
+        Page response2 = runGoodEndToEndTest(webClient2, "ApplicationScoped", "ApplicationScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        validateNotTheSame("Callback", response1, response2);
+
+    }
+
+    /**
+     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
+     * each instance
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSimplestAnnotatedServlet_multipleDifferentUsers_RequestScoped() throws Exception {
+
+        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
+        // if we end up using a different port, we'll need to skip this test
+
+        WebClient webClient1 = getAndSaveWebClient();
+        Page response1 = runGoodEndToEndTest(webClient1, "RequestScoped", "RequestScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        rspValues.setSubject("user1");
+        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
+        Page response2 = runGoodEndToEndTest(webClient2, "RequestScoped", "RequestScopedServlet", "user1", "user1pwd");
+
+        validateNotTheSame("Callback", response1, response2);
+
+    }
+
+    /**
+     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
+     * each instance
+     *
+     * @throws Exception
+     */
+    @Test
+    public void testSimplestAnnotatedServlet_multipleSameUsers_RequestScoped() throws Exception {
+
+        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
+        // if we end up using a different port, we'll need to skip this test
+
+        WebClient webClient1 = getAndSaveWebClient();
+        Page response1 = runGoodEndToEndTest(webClient1, "RequestScoped", "RequestScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
+        Page response2 = runGoodEndToEndTest(webClient2, "RequestScoped", "RequestScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
+
+        validateNotTheSame("Callback", response1, response2);
+
+    }
 
     /**
      * Use the same app with different users and different sessions - should use different contexts and show the proper users for
@@ -109,11 +206,13 @@ public class ScopedTests extends CommonAnnotatedSecurityTests {
         // if we end up using a different port, we'll need to skip this test
 
         WebClient webClient1 = getAndSaveWebClient();
-        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+        Page response1 = runGoodEndToEndTest(webClient1, "SessionScoped", "SessionScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
 
         rspValues.setSubject("user1");
         WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
-        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
+        Page response2 = runGoodEndToEndTest(webClient2, "SessionScoped", "SessionScopedServlet", "user1", "user1pwd");
+
+        validateNotTheSame("Callback", response1, response2);
 
     }
 
@@ -124,59 +223,18 @@ public class ScopedTests extends CommonAnnotatedSecurityTests {
      * @throws Exception
      */
     @Test
-    public void testSimplestAnnotatedServlet_multipleSmeUsers_SessionScoped() throws Exception {
+    public void testSimplestAnnotatedServlet_multipleSameUsers_SessionScoped() throws Exception {
 
         // the test app has the OP secure port hard coded (since it doesn't use expression language vars
         // if we end up using a different port, we'll need to skip this test
 
         WebClient webClient1 = getAndSaveWebClient();
-        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
+        Page response1 = runGoodEndToEndTest(webClient1, "SessionScoped", "SessionScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
 
-        rspValues.setSubject("user1");
         WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
-        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
+        Page response2 = runGoodEndToEndTest(webClient2, "SessionScoped", "SessionScopedServlet", Constants.TESTUSER, Constants.TESTUSERPWD);
 
-    }
-
-    /**
-     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
-     * each instance
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testSimplestAnnotatedServlet_multipleDifferentUsers_ApplicationScoped() throws Exception {
-
-        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
-        // if we end up using a different port, we'll need to skip this test
-
-        WebClient webClient1 = getAndSaveWebClient();
-        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
-
-        rspValues.setSubject("user1");
-        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
-        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
-
-    }
-
-    /**
-     * Use the same app with different users and different sessions - should use different contexts and show the proper users for
-     * each instance
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testSimplestAnnotatedServlet_multipleSmeUsers_ApplicationScoped() throws Exception {
-
-        // the test app has the OP secure port hard coded (since it doesn't use expression language vars
-        // if we end up using a different port, we'll need to skip this test
-
-        WebClient webClient1 = getAndSaveWebClient();
-        runGoodEndToEndTest(webClient1, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", Constants.TESTUSER, Constants.TESTUSERPWD);
-
-        rspValues.setSubject("user1");
-        WebClient webClient2 = getAndSaveWebClient(); // need a new webClient
-        runGoodEndToEndTest(webClient2, "SimplestAnnotatedWithEL", "OidcAnnotatedServletWithEL", "user1", "user1pwd");
+        validateNotTheSame("Callback", response1, response2);
 
     }
 

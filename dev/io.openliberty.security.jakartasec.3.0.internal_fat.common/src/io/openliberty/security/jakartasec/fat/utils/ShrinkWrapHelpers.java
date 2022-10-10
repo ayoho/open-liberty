@@ -32,12 +32,12 @@ public class ShrinkWrapHelpers {
 
         Log.info(thisClass, "ShrinkWrapHelpers", "Saving default OP and RP ports");
         providerFileContent = Constants.PROVIDER_BASE + "=http://localhost:" + System.getProperty("bvt.prop.security_1_HTTP_default") +
-                System.lineSeparator() +
-                Constants.PROVIDER_SECURE_BASE + "=https://localhost:" + System.getProperty("bvt.prop.security_1_HTTP_default.secure") +
-                System.lineSeparator() +
-                Constants.CLIENT_BASE + "=http://localhost:" + System.getProperty("bvt.prop.security_2_HTTP_default") +
-                System.lineSeparator() +
-                Constants.CLIENT_SECURE_BASE + "=https://localhost:" + System.getProperty("bvt.prop.security_2_HTTP_default.secure");
+                              System.lineSeparator() +
+                              Constants.PROVIDER_SECURE_BASE + "=https://localhost:" + System.getProperty("bvt.prop.security_1_HTTP_default.secure") +
+                              System.lineSeparator() +
+                              Constants.CLIENT_BASE + "=http://localhost:" + System.getProperty("bvt.prop.security_2_HTTP_default") +
+                              System.lineSeparator() +
+                              Constants.CLIENT_SECURE_BASE + "=https://localhost:" + System.getProperty("bvt.prop.security_2_HTTP_default.secure");
     }
 
     /**
@@ -48,20 +48,20 @@ public class ShrinkWrapHelpers {
 
         Log.info(thisClass, "ShrinkWrapHelpers", "Saving only RP ports");
         providerFileContent = Constants.PROVIDER_BASE + "=" + opBase +
-                System.lineSeparator() +
-                Constants.PROVIDER_SECURE_BASE + "=" + opSecureBase;
+                              System.lineSeparator() +
+                              Constants.PROVIDER_SECURE_BASE + "=" + opSecureBase;
     }
 
     public ShrinkWrapHelpers(String opBase, String opSecureBase, String rpBase, String rpSecureBase) {
 
         Log.info(thisClass, "ShrinkWrapHelpers", "Saving real OP and RP ports (" + rpBase + " " + rpSecureBase + " " + rpBase + " " + rpSecureBase + ")");
         providerFileContent = Constants.PROVIDER_BASE + "=" + opBase +
-                System.lineSeparator() +
-                Constants.PROVIDER_SECURE_BASE + "=" + opSecureBase +
-                System.lineSeparator() +
-                Constants.CLIENT_BASE + "=" + rpBase +
-                System.lineSeparator() +
-                Constants.CLIENT_SECURE_BASE + "=" + rpSecureBase;
+                              System.lineSeparator() +
+                              Constants.PROVIDER_SECURE_BASE + "=" + opSecureBase +
+                              System.lineSeparator() +
+                              Constants.CLIENT_BASE + "=" + rpBase +
+                              System.lineSeparator() +
+                              Constants.CLIENT_SECURE_BASE + "=" + rpSecureBase;
 
     }
 

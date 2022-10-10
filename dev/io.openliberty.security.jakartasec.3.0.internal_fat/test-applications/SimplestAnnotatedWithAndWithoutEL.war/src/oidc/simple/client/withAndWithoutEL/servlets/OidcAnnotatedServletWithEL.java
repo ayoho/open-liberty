@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.simple.client.withAndWithoutEL.servlets;
 
@@ -21,30 +21,22 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
-import oidc.client.base.utils.OpenIdContextLogger;
+import oidc.client.base.utils.ServletLogger;
 
 @WebServlet("/OidcAnnotatedServletWithEL")
-@OpenIdAuthenticationMechanismDefinition(
-                                         providerURI = "https://localhost:8920/oidc/endpoint/OP1",
-                                         clientId = "client_1",
-                                         clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger",
-                                         claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}",
-                                                                              callerGroupsClaim = "${openIdConfig.callerGroupsClaim}"),
-//                                         redirectURI = "https://localhost:8940/SimplestAnnotatedWithAndWithoutEL/Callback",
-                                         redirectURI = "${providerBean.clientSecureRoot}/SimplestAnnotatedWithAndWithoutEL/Callback",
-                                         providerMetadata = @OpenIdProviderMetadata(
-                                                                                    authorizationEndpoint = "https://localhost:8920/oidc/endpoint/OP1/authorize",
-                                                                                    tokenEndpoint = "https://localhost:8920/oidc/endpoint/OP1/token"))
+@OpenIdAuthenticationMechanismDefinition(providerURI = "https://localhost:8920/oidc/endpoint/OP1", clientId = "client_1", clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger", claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}", callerGroupsClaim = "${openIdConfig.callerGroupsClaim}"),
+        //                                         redirectURI = "https://localhost:8940/SimplestAnnotatedWithAndWithoutEL/Callback",
+        redirectURI = "${providerBean.clientSecureRoot}/SimplestAnnotatedWithAndWithoutEL/Callback", providerMetadata = @OpenIdProviderMetadata(authorizationEndpoint = "https://localhost:8920/oidc/endpoint/OP1/authorize", tokenEndpoint = "https://localhost:8920/oidc/endpoint/OP1/token"))
 @DeclareRoles("all")
 @ServletSecurity(@HttpConstraint(rolesAllowed = "all"))
 public class OidcAnnotatedServletWithEL extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream outputStream, OpenIdContextLogger contextLogger) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream) throws IOException {
 
-        super.recordHelloWorld(outputStream, contextLogger);
-        contextLogger.printLine(outputStream, "Hello world from OidcAnnotatedServletWithEL");
+        super.recordHelloWorld(outputStream);
+        ServletLogger.printLine(outputStream, "Hello world from OidcAnnotatedServletWithEL");
 
     }
 

@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.simple.client.withAndWithoutEL.servlets;
 
@@ -18,13 +18,13 @@ import oidc.client.base.servlets.BaseOpenIdConfig;
 @Dependent
 public class OpenIdConfig extends BaseOpenIdConfig {
 
-//    @Override
-//    public String getClientSecret() {
-//        if (config.containsKey(Constants.CLIENT_SECRET)) {
-//            return config.getProperty(Constants.CLIENT_SECRET);
-//        }
-//
-//        return "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger";
-//    }
+    //    @Override
+    //    public String getClientSecret() {
+    //        if (config.containsKey(Constants.CLIENT_SECRET)) {
+    //            return config.getProperty(Constants.CLIENT_SECRET);
+    //        }
+    //
+    //        return "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger";
+    //    }
 
 }
