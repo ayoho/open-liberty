@@ -6,22 +6,32 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.client.base.servlets;
 
 import java.io.IOException;
 
+import io.openliberty.security.jakartasec.fat.utils.ServletMessageConstants;
+import jakarta.inject.Inject;
+import jakarta.security.enterprise.identitystore.openid.OpenIdContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import oidc.client.base.utils.OpenIdContextLogger;
+import oidc.client.base.utils.RequestLogger;
+import oidc.client.base.utils.ServletLogger;
+import oidc.client.base.utils.WSSubjectLogger;
 
 @WebServlet("/SimpleServlet")
 public class SimpleServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
+
+    @Inject
+    private OpenIdContext context;
 
     public SimpleServlet() {
         super();
@@ -32,14 +42,27 @@ public class SimpleServlet extends HttpServlet {
 
         ServletOutputStream outputStream = response.getOutputStream();
 
-        // TODO - add code to use the openIdContextBean to dump content for test cases to check - would like to use this same app for protected and unprotected, so skip the full logging if the context bean is null
+        ServletLogger.printLine(outputStream, "Class: " + this.getClass().getName());
+        ServletLogger.printLine(outputStream, "got here");
+
+        RequestLogger requestLogger = new RequestLogger(request, ServletMessageConstants.SERVLET + ServletMessageConstants.REQUEST);
+        requestLogger.printRequest(outputStream);
+
+        OpenIdContextLogger contextLogger = new OpenIdContextLogger(request, response, ServletMessageConstants.SERVLET + ServletMessageConstants.OPENID_CONTEXT, context);
+        contextLogger.logContext(outputStream);
+
+        WSSubjectLogger subjectLogger = new WSSubjectLogger(request, ServletMessageConstants.SERVLET + ServletMessageConstants.WSSUBJECT);
+        subjectLogger.printProgrammaticApiValues(outputStream);
+
         recordHelloWorld(outputStream);
+
     }
 
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream) throws IOException {
 
-        System.out.println("Hello world from SimpleServlet");
-        output.println("Hello world from SimpleServlet!");
+        ServletLogger.printLine(outputStream, "Hello world from SimpleServlet");
+        ServletLogger.printLine(outputStream, this.getClass().getSuperclass().getName());
+        ServletLogger.printLine(outputStream, this.getClass().getName());
 
     }
 }

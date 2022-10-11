@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package io.openliberty.security.jakartasec.fat;
 
@@ -19,15 +19,18 @@ import com.ibm.ws.security.fat.common.actions.SecurityTestFeatureEE10RepeatActio
 
 import componenttest.custom.junit.runner.AlwaysPassesTest;
 import componenttest.rules.repeater.RepeatTests;
+import io.openliberty.security.jakartasec.fat.tests.ConfigurationClaimsDefinitionTests;
+import io.openliberty.security.jakartasec.fat.tests.ConfigurationELValuesOverrideTests;
+import io.openliberty.security.jakartasec.fat.tests.ConfigurationELValuesOverrideWithoutHttpSessionTests;
 import io.openliberty.security.jakartasec.fat.tests.ConfigurationTests;
 
 @RunWith(Suite.class)
 @SuiteClasses({
                 AlwaysPassesTest.class,
                 ConfigurationTests.class,
-//                ConfigurationClaimsDefinitionTests.class,
-//                ConfigurationELValuesOverrideTests.class,
-//                ConfigurationELValuesOverrideWithoutHttpSessionTests.class
+                ConfigurationClaimsDefinitionTests.class,
+                ConfigurationELValuesOverrideTests.class,
+                ConfigurationELValuesOverrideWithoutHttpSessionTests.class
 })
 public class FATSuite {
 

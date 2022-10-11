@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package io.openliberty.security.jakartasec.fat;
 
@@ -17,14 +17,14 @@ import org.junit.runners.Suite.SuiteClasses;
 
 import com.ibm.ws.security.fat.common.actions.SecurityTestFeatureEE10RepeatAction;
 
-import componenttest.custom.junit.runner.AlwaysPassesTest;
 import componenttest.rules.repeater.RepeatTests;
 import io.openliberty.security.jakartasec.fat.tests.SimplestAnnotatedTest;
 
 @RunWith(Suite.class)
 @SuiteClasses({
-                AlwaysPassesTest.class,
-                SimplestAnnotatedTest.class
+//                AlwaysPassesTest.class,
+                SimplestAnnotatedTest.class,
+//                InjectionScopedTests.class
 })
 public class FATSuite {
 

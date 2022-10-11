@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.client.base.servlets;
 
@@ -39,10 +39,10 @@ public class ProviderBean implements java.io.Serializable {
             }
         }
 
-//        Properties props = System.getProperties();
-//        for (Entry<Object, Object> entry : props.entrySet()) {
-//            System.out.println("ProviderBean: Property: " + entry.getKey() + " with value: " + entry.getValue());
-//        }
+        //        Properties props = System.getProperties();
+        //        for (Entry<Object, Object> entry : props.entrySet()) {
+        //            System.out.println("ProviderBean: Property: " + entry.getKey() + " with value: " + entry.getValue());
+        //        }
 
     }
 

@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.client.claimsDefinition.servlets;
 
@@ -20,12 +20,11 @@ import jakarta.servlet.annotation.HttpConstraint;
 import jakarta.servlet.annotation.ServletSecurity;
 import jakarta.servlet.annotation.WebServlet;
 import oidc.client.base.servlets.SimpleServlet;
+import oidc.client.base.utils.ServletLogger;
 
 // TODO - Make sure all possible attrs using EL values
 @WebServlet("/ClaimsDefinitionServlet")
-@OpenIdAuthenticationMechanismDefinition(
-                                         providerURI = "${providerBean.providerSecureRoot}/oidc/endpoint/OP1",
-                                         clientId = "client_1",
+@OpenIdAuthenticationMechanismDefinition(providerURI = "${providerBean.providerSecureRoot}/oidc/endpoint/OP1", clientId = "client_1",
                                          clientSecret = "mySharedKeyNowHasToBeLongerStrongerAndMoreSecureAndForHS512EvenLongerToBeStronger",
                                          claimsDefinition = @ClaimsDefinition(callerNameClaim = "${openIdConfig.callerNameClaim}",
                                                                               callerGroupsClaim = "${openIdConfig.callerGroupsClaim}"),
@@ -37,11 +36,10 @@ public class ClaimsDefinitionServlet extends SimpleServlet {
     private static final long serialVersionUID = 1L;
 
     @Override
-    protected void recordHelloWorld(ServletOutputStream output) throws IOException {
+    protected void recordHelloWorld(ServletOutputStream outputStream) throws IOException {
 
-        super.recordHelloWorld(output);
-        System.out.println("Hello world from MaximumAnnotationServlet");
-        output.println("Hello world from MaximumAnnotationServlet!");
+        super.recordHelloWorld(outputStream);
+        ServletLogger.printLine(outputStream, "Hello world from ClaimsDefinitionServlet");
 
     }
 }

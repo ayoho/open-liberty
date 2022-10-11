@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package oidc.client.base.servlets;
 
@@ -23,7 +23,8 @@ import jakarta.inject.Named;
  * Load the config values from the default config property file.
  * If no value is found for an expected config attribute, load it, if a value is NOT found set this tests suites default value.
  * Test applications can override methods to specify their own value.
- * A value of "UnsetValue" will cause this tooling to return null (this allows the test specified config files to omit specific config values)
+ * A value of "UnsetValue" will cause this tooling to return null (this allows the test specified config files to omit specific
+ * config values)
  */
 
 @Named

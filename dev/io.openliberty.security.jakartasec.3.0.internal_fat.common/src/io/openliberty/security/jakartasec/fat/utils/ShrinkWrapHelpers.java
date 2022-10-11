@@ -6,7 +6,7 @@
  * http://www.eclipse.org/legal/epl-v10.html
  *
  * Contributors:
- *     IBM Corporation - initial API and implementation
+ * IBM Corporation - initial API and implementation
  *******************************************************************************/
 package io.openliberty.security.jakartasec.fat.utils;
 
@@ -66,11 +66,15 @@ public class ShrinkWrapHelpers {
     }
 
     /**
-     * Deploy an app that has been built as part of the fat framework. We'll add some utility classes as well as the provider config file with the current op runtime ports
+     * Deploy an app that has been built as part of the fat framework. We'll add some utility classes as well as the provider
+     * config file with the current op runtime ports
      *
-     * @param server the server to deploy the app to
-     * @param appName the app to deploy
-     * @param packages the packages to include in the war (generally this is the package from the app plus any common tooling)
+     * @param server
+     *            the server to deploy the app to
+     * @param appName
+     *            the app to deploy
+     * @param packages
+     *            the packages to include in the war (generally this is the package from the app plus any common tooling)
      * @throws Exception
      */
     public void defaultDropinApp(LibertyServer server, String appName, String... packages) throws Exception {
@@ -83,13 +87,19 @@ public class ShrinkWrapHelpers {
     }
 
     /**
-     * Deploys applications that will start with copies of a shared app. We'll update the copy with additional packages as well as more specific config data
+     * Deploys applications that will start with copies of a shared app. We'll update the copy with additional packages as well as
+     * more specific config data
      *
-     * @param server the server to deploy the app to
-     * @param newWar the new war to create
-     * @param sourceWar the war to copy from
-     * @param configSettings the config settings to use to build the openIdConfig.properties file
-     * @param packages the pacakges to include in the new war
+     * @param server
+     *            the server to deploy the app to
+     * @param newWar
+     *            the new war to create
+     * @param sourceWar
+     *            the war to copy from
+     * @param configSettings
+     *            the config settings to use to build the openIdConfig.properties file
+     * @param packages
+     *            the pacakges to include in the new war
      * @throws Exception
      */
     public void deployConfigurableTestApps(LibertyServer server, String newWar, String sourceWar, Map<String, Object> configSettings, String... packages) throws Exception {
@@ -107,7 +117,8 @@ public class ShrinkWrapHelpers {
     /**
      * Add utility classes to the tests wars
      *
-     * @param war the war to update
+     * @param war
+     *            the war to update
      * @return the updated war
      * @throws Exception
      */
@@ -121,9 +132,11 @@ public class ShrinkWrapHelpers {
     }
 
     /**
-     * Add the provider configuration settings to a file named providerConfig.properties (this should be done for all of our war files)
+     * Add the provider configuration settings to a file named providerConfig.properties (this should be done for all of our war
+     * files)
      *
-     * @param war the war to update
+     * @param war
+     *            the war to update
      * @return the updated war
      * @throws Exception
      */
@@ -139,7 +152,8 @@ public class ShrinkWrapHelpers {
     /**
      * Create the openIdConfig.properties file content from the config variable map.
      *
-     * @param configSettings the map of config settings
+     * @param configSettings
+     *            the map of config settings
      * @return the openIdConfig.properties file content
      * @throws Exception
      */
