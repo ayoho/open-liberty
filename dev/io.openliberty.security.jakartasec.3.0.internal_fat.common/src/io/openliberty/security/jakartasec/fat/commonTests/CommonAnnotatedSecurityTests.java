@@ -26,6 +26,8 @@ import com.gargoylesoftware.htmlunit.WebClient;
 import com.gargoylesoftware.htmlunit.util.NameValuePair;
 import com.ibm.websphere.simplicity.log.Log;
 import com.ibm.ws.security.fat.common.CommonSecurityFat;
+import com.ibm.ws.security.fat.common.Utils;
+import com.ibm.ws.security.fat.common.actions.SecurityTestRepeatAction;
 import com.ibm.ws.security.fat.common.actions.TestActions;
 import com.ibm.ws.security.fat.common.expectations.Expectations;
 import com.ibm.ws.security.fat.common.expectations.ResponseFullExpectation;
@@ -34,6 +36,7 @@ import com.ibm.ws.security.fat.common.utils.CommonExpectations;
 import com.ibm.ws.security.fat.common.validation.TestValidationUtils;
 
 import componenttest.custom.junit.runner.RepeatTestFilter;
+import componenttest.rules.repeater.RepeatTests;
 import componenttest.topology.impl.LibertyServer;
 import io.openliberty.security.jakartasec.fat.utils.Constants;
 import io.openliberty.security.jakartasec.fat.utils.OpenIdContextExpectationHelpers;
@@ -56,6 +59,28 @@ public class CommonAnnotatedSecurityTests extends CommonSecurityFat {
 
     protected static ResponseValues rspValues;
 
+    public static RepeatTests createTokenTypeRepeats() {
+
+        String accessTokenType = Utils.getRandomSelection(Constants.JWT_TOKEN_FORMAT, Constants.OPAQUE_TOKEN_FORMAT);
+
+        Log.info(thisClass, "createRepeats", "Will be running tests using a " + accessTokenType + " access_token");
+        // note:  using the method addRepeat below instead of adding test repeats in line to simplify hacking up the tests locally to ony run one or 2 variations (all the calls are the same - dont' have to worry about using "with" vs "andWith")
+        RepeatTests rTests = null;
+
+        rTests = addRepeat(rTests, new SecurityTestRepeatAction(accessTokenType));
+
+        return rTests;
+
+    }
+
+    public static RepeatTests addRepeat(RepeatTests rTests, SecurityTestRepeatAction currentRepeat) {
+        if (rTests == null) {
+            return RepeatTests.with(currentRepeat);
+        } else {
+            return rTests.andWith(currentRepeat);
+        }
+    }
+
     public static void updateTrackers(LibertyServer opServer, LibertyServer rpServer, boolean serversAreReconfigured) throws Exception {
 
         // track the servers that we start so that they'll be cleaned up at the end of this classes execution, or if the tests fail out
@@ -69,13 +94,18 @@ public class CommonAnnotatedSecurityTests extends CommonSecurityFat {
 
     }
 
-    public static LibertyServer setTokenTypeInBootstrap(LibertyServer server, LibertyServer rpJwtServer, LibertyServer rpOpaqueServer) throws Exception {
+    public static void setTokenTypeInBootstrap(LibertyServer server) throws Exception {
+
+        setTokenTypeInBootstrap(server, null, null);
+    }
+
+    public static LibertyServer setTokenTypeInBootstrap(LibertyServer opServer, LibertyServer rpJwtServer, LibertyServer rpOpaqueServer) throws Exception {
 
         if (RepeatTestFilter.getRepeatActionsAsString().contains(Constants.JWT_TOKEN_FORMAT)) {
-            bootstrapUtils.writeBootstrapProperty(server, "opTokenFormat", "jwt");
+            bootstrapUtils.writeBootstrapProperty(opServer, "opTokenFormat", "jwt");
             return rpJwtServer;
         } else {
-            bootstrapUtils.writeBootstrapProperty(server, "opTokenFormat", "opaque");
+            bootstrapUtils.writeBootstrapProperty(opServer, "opTokenFormat", "opaque");
             return rpOpaqueServer;
         }
         // not testing with mpJwt at the moment

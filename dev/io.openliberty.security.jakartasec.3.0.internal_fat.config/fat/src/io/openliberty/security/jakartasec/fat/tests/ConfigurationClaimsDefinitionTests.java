@@ -13,6 +13,7 @@ package io.openliberty.security.jakartasec.fat.tests;
 import java.util.List;
 
 import org.junit.BeforeClass;
+import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -26,6 +27,7 @@ import com.ibm.ws.security.fat.common.utils.SecurityFatHttpUtils;
 
 import componenttest.annotation.Server;
 import componenttest.custom.junit.runner.FATRunner;
+import componenttest.rules.repeater.RepeatTests;
 import componenttest.topology.impl.LibertyServer;
 import io.openliberty.security.jakartasec.fat.commonTests.CommonAnnotatedSecurityTests;
 import io.openliberty.security.jakartasec.fat.configs.TestConfigMaps;
@@ -55,10 +57,16 @@ public class ConfigurationClaimsDefinitionTests extends CommonAnnotatedSecurityT
 
     protected static String app = "ClaimsDefinitionServlet";
 
+    @ClassRule
+    public static RepeatTests repeat = createTokenTypeRepeats();
+
     @BeforeClass
     public static void setUp() throws Exception {
 
         transformAppsInDefaultDirs(opServer, "dropins");
+
+        // write property that is used to configure the OP to generate JWT or Opaque tokens
+        setTokenTypeInBootstrap(opServer);
 
         // Add servers to server trackers that will be used to clean servers up and prevent servers
         // from being restored at the end of each test (so far, the tests are not reconfiguring the servers)

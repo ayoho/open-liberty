@@ -53,9 +53,9 @@ public class BaseCallbackServlet extends HttpServlet {
 
         if (context != null) {
             // TODO need 22727 fixed before we can enable the next line without getting an NPE
-            //            Optional<String> originalRequest = context.getStoredValue(request, response, OpenIdConstant.ORIGINAL_REQUEST);
-            //            String originalRequestString = originalRequest.get();
-            //            response.sendRedirect(originalRequestString);
+//            Optional<String> originalRequest = context.getStoredValue(request, response, OpenIdConstant.ORIGINAL_REQUEST);
+//            String originalRequestString = originalRequest.get();
+//            response.sendRedirect(originalRequestString);
         }
     }
 

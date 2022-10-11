@@ -17,16 +17,14 @@ import org.junit.runners.Suite.SuiteClasses;
 
 import com.ibm.ws.security.fat.common.actions.SecurityTestFeatureEE10RepeatAction;
 
-import componenttest.custom.junit.runner.AlwaysPassesTest;
 import componenttest.rules.repeater.RepeatTests;
-import io.openliberty.security.jakartasec.fat.tests.InjectionScopedTests;
 import io.openliberty.security.jakartasec.fat.tests.SimplestAnnotatedTest;
 
 @RunWith(Suite.class)
 @SuiteClasses({
-                AlwaysPassesTest.class,
+//                AlwaysPassesTest.class,
                 SimplestAnnotatedTest.class,
-                InjectionScopedTests.class
+//                InjectionScopedTests.class
 })
 public class FATSuite {
 
