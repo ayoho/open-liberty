@@ -11,10 +11,14 @@
 package io.openliberty.security.oidcclientcore.userinfo;
 
 import java.io.IOException;
+import java.io.StringReader;
 import java.security.Key;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import javax.json.Json;
+import javax.json.JsonObject;
 
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
@@ -26,7 +30,6 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.JwtContext;
 import org.jose4j.jwx.JsonWebStructure;
 
-import com.ibm.json.java.JSONObject;
 import com.ibm.websphere.ras.Tr;
 import com.ibm.websphere.ras.TraceComponent;
 
@@ -78,7 +81,7 @@ public class UserInfoRequestor {
         }
 
         int statusCode = 0;
-        JSONObject claims = null;
+        JsonObject claims = null;
         try {
             Map<String, Object> resultMap = getFromUserInfoEndpoint();
             HttpResponse response = (HttpResponse) resultMap.get(HttpConstants.RESPONSEMAP_CODE);
@@ -102,7 +105,7 @@ public class UserInfoRequestor {
         return response.getStatusLine().getStatusCode();
     }
 
-    private JSONObject extractClaimsFromResponse(HttpResponse response) throws Exception {
+    private JsonObject extractClaimsFromResponse(HttpResponse response) throws Exception {
         HttpEntity entity = response.getEntity();
         String jresponse = null;
         if (entity != null) {
@@ -115,7 +118,7 @@ public class UserInfoRequestor {
         if (contentType == null) {
             return null;
         }
-        JSONObject claims = null;
+        JsonObject claims = null;
         if (contentType.contains(HttpConstants.APPLICATION_JSON)) {
             claims = extractClaimsFromJsonResponse(jresponse);
         } else if (contentType.contains(HttpConstants.APPLICATION_JWT)) {
@@ -124,8 +127,8 @@ public class UserInfoRequestor {
         return claims;
     }
 
-    private JSONObject extractClaimsFromJsonResponse(String jresponse) throws IOException {
-        return JSONObject.parse(jresponse);
+    private JsonObject extractClaimsFromJsonResponse(String jresponse) throws IOException {
+        return Json.createReader(new StringReader(jresponse)).readObject();
     }
 
     private String getContentType(HttpEntity entity) {
@@ -136,17 +139,14 @@ public class UserInfoRequestor {
         return null;
     }
 
-    @SuppressWarnings("unchecked")
-    public JSONObject extractClaimsFromJwtResponse(String responseString) throws Exception {
+    public JsonObject extractClaimsFromJwtResponse(String responseString) throws Exception {
         JwtContext jwtContext = JwtParsingUtils.parseJwtWithoutValidation(responseString);
         if (jwtContext != null) {
             // Validate the JWS signature only; extract the claims so they can be verified elsewhere
             JwsSignatureVerifier signatureVerifier = createSignatureVerifier(jwtContext);
             JwtClaims claims = signatureVerifier.validateJwsSignature(jwtContext);
             if (claims != null) {
-                JSONObject jsonClaims = new JSONObject();
-                jsonClaims.putAll(claims.getClaimsMap());
-                return jsonClaims;
+                return Json.createReader(new StringReader(claims.getRawJson())).readObject();
             }
         }
         return null;

@@ -10,23 +10,24 @@
  *******************************************************************************/
 package io.openliberty.security.oidcclientcore.userinfo;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
+import java.util.Map.Entry;
 
-import com.ibm.json.java.JSONObject;
+import javax.json.JsonObject;
+import javax.json.JsonString;
+import javax.json.JsonValue;
+import javax.json.JsonValue.ValueType;
 
 public class UserInfoResponse {
 
-    private final JSONObject rawResponse;
+    private final JsonObject rawResponse;
     private Map<String, Object> responseAsMap;
 
-    public UserInfoResponse(JSONObject responseStr) {
+    public UserInfoResponse(JsonObject responseStr) {
         rawResponse = responseStr;
     }
 
-    @SuppressWarnings("unchecked")
     public Map<String, Object> asMap() {
         if (responseAsMap != null) {
             return responseAsMap;
@@ -35,24 +36,20 @@ public class UserInfoResponse {
             return null;
         }
         Map<String, Object> map = new HashMap<>();
-        Set<String> keys = rawResponse.keySet();
-        for (String key : keys) {
-            map.put(key, rawResponse.get(key));
+        for (Entry<String, JsonValue> entry : rawResponse.entrySet()) {
+            JsonValue value = entry.getValue();
+            if (value.getValueType().equals(ValueType.STRING)) {
+                map.put(entry.getKey(), ((JsonString) value).getString());
+            } else {
+                map.put(entry.getKey(), value);
+            }
         }
         responseAsMap = new HashMap<>(map);
         return map;
     }
 
-    public JSONObject asJSON() {
+    public JsonObject asJSON() {
         return rawResponse;
-    }
-
-    public String serialize() {
-        try {
-            return rawResponse.serialize();
-        } catch (IOException e) {
-            return null;
-        }
     }
 
 }
