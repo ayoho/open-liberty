@@ -53,5 +53,6 @@ javac.target: 11
 	com.ibm.ws.org.slf4j.api;version=latest,\
 	io.openliberty.jakarta.cdi.4.0;version=latest,\
 	jakarta.inject.jakarta.inject-api;version=latest,\
-	io.openliberty.jakarta.servlet.5.0
+	io.openliberty.jakarta.servlet.5.0,\
+	io.openliberty.jakarta.jsonp.2.1;version=latest
 

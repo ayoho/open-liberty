@@ -27,7 +27,8 @@ import oidc.client.base.servlets.BaseServlet;
                                          useSession = false,
                                          redirectURI = "https://localhost:8940/SimplestAnnotated/Callback",
                                          providerMetadata = @OpenIdProviderMetadata(authorizationEndpoint = "https://localhost:8920/oidc/endpoint/OP1/authorize",
-                                                                                    tokenEndpoint = "https://localhost:8920/oidc/endpoint/OP1/token"))
+                                                                                    tokenEndpoint = "https://localhost:8920/oidc/endpoint/OP1/token",
+                                                                                    userinfoEndpoint = "https://localhost:8940/SimplestAnnotated/userinfo"))
 @DeclareRoles("all")
 @ServletSecurity(@HttpConstraint(rolesAllowed = "all"))
 public class OidcAnnotatedServlet extends BaseServlet {
