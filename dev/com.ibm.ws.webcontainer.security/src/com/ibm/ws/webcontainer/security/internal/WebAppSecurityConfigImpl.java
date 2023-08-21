@@ -6,9 +6,6 @@
  * http://www.eclipse.org/legal/epl-2.0/
  *
  * SPDX-License-Identifier: EPL-2.0
- *
- * Contributors:
- *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package com.ibm.ws.webcontainer.security.internal;
 
@@ -74,6 +71,7 @@ public class WebAppSecurityConfigImpl implements WebAppSecurityConfig {
     public static final String CFG_KEY_BASIC_AUTH_REALM_NAME = "basicAuthenticationMechanismRealmName";
     public static final String CFG_KEY_SAME_SITE_COOKIE = "sameSiteCookie";
     public static final String CFG_KEY_USE_CONTEXT_ROOT_FOR_SSO_COOKIE_PATH = "useContextRootForSSOCookiePath";
+    public static final String CFG_KEY_SEND_WWW_AUTHENTICATE_HEADER_FOR_UNAUTHENTICATED_XHR = "sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest";
 
     // New attributes must update getChangedProperties method
     private final Boolean logoutOnHttpSessionExpire;
@@ -106,6 +104,7 @@ public class WebAppSecurityConfigImpl implements WebAppSecurityConfig {
     private final String basicAuthRealmName;
     private final String sameSiteCookie;
     private final Boolean useContextRootForSSOCookiePath;
+    private final Boolean sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest;
 
     protected final AtomicServiceReference<WsLocationAdmin> locationAdminRef;
     protected final AtomicServiceReference<SecurityService> securityServiceRef;
@@ -146,6 +145,7 @@ public class WebAppSecurityConfigImpl implements WebAppSecurityConfig {
             put(CFG_KEY_BASIC_AUTH_REALM_NAME, "basicAuthRealmName");
             put(CFG_KEY_SAME_SITE_COOKIE, "sameSiteCookie");
             put(CFG_KEY_USE_CONTEXT_ROOT_FOR_SSO_COOKIE_PATH, "useContextRootForSSOCookiePath");
+            put(CFG_KEY_SEND_WWW_AUTHENTICATE_HEADER_FOR_UNAUTHENTICATED_XHR, "sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest");
         }
     };
 
@@ -190,6 +190,7 @@ public class WebAppSecurityConfigImpl implements WebAppSecurityConfig {
         basicAuthRealmName = (String) newProperties.get(CFG_KEY_BASIC_AUTH_REALM_NAME);
         sameSiteCookie = (String) newProperties.get(CFG_KEY_SAME_SITE_COOKIE);
         useContextRootForSSOCookiePath = (Boolean) newProperties.get(CFG_KEY_USE_CONTEXT_ROOT_FOR_SSO_COOKIE_PATH);
+        sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest = (Boolean) newProperties.get(CFG_KEY_SEND_WWW_AUTHENTICATE_HEADER_FOR_UNAUTHENTICATED_XHR);
 
         WebAppSecurityCollaboratorImpl.setGlobalWebAppSecurityConfig(this);
     }
@@ -595,5 +596,10 @@ public class WebAppSecurityConfigImpl implements WebAppSecurityConfig {
     @Override
     public boolean isUseContextRootForSSOCookiePath() {
         return useContextRootForSSOCookiePath;
+    }
+
+    @Override
+    public boolean sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest() {
+        return sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest;
     }
 }

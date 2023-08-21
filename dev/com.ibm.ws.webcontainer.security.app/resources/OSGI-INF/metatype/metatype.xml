@@ -7,9 +7,6 @@
     http://www.eclipse.org/legal/epl-2.0/
     
     SPDX-License-Identifier: EPL-2.0
-   
-    Contributors:
-        IBM Corporation - initial API and implementation
  -->
 <metatype:MetaData xmlns:metatype="http://www.osgi.org/xmlns/metatype/v1.1.0" 
                    xmlns:ibm="http://www.ibm.com/xmlns/appservers/osgi/metatype/v1.0.0" 
@@ -129,7 +126,7 @@
 
         <AD id="basicAuthenticationMechanismRealmName" name="%basicAuthenticationMechanismRealmName" description="%basicAuthenticationMechanismRealmName.desc"
             required="false" type="String" default="defaultRealm" />
-        
+
         <AD id="sameSiteCookie" name="%sameSiteCookie" description="%sameSiteCookie.desc"
      		required="false" type="String" default="Disabled">
      			<Option label="%sameSiteCookieDisabled" value="Disabled"/>
@@ -137,10 +134,13 @@
      			<Option label="%sameSiteCookieNone" value="None"/>
      			<Option label="%sameSiteCookieStrict" value="Strict"/>
         </AD>    
-        
-        <AD id="useContextRootForSSOCookiePath" name="%useContextRootForSSOCookiePath" description="%useContextRootForSSOCookiePath.desc" 
+
+        <AD id="useContextRootForSSOCookiePath" name="%useContextRootForSSOCookiePath" description="%useContextRootForSSOCookiePath.desc"
             required="false" type="Boolean" default="false"/>
-     			
+
+        <AD id="sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest" name="%sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest" description="%sendWWWAuthenticateHeaderForUnauthenticatedXMLHttpRequest.desc"
+            required="false" type="Boolean" default="true" ibm:beta="true" />
+
         <!-- 
               JCache configuration.
         -->
