@@ -1359,6 +1359,12 @@ public class WebAppSecurityCollaboratorImplTest {
         final AuthenticationResult authResult = new AuthenticationResult(AuthResult.FAILURE, (String) null);
         this.authResult = authResult;
 
+        mock.checking(new Expectations() {
+            {
+                one(request).getHeader("X-Requested-With");
+                will(returnValue(null));
+            }
+        });
         withRegistryRealm("aRealm");
         withResponseNotCommited();
         withErrorResponse(403, "AuthenticationFailed");
