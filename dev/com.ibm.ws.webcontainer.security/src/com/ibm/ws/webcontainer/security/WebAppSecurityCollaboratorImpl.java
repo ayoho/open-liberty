@@ -1109,6 +1109,9 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
         } else {
             result = false;
             if (!isCredentialPresent) {
+                if (isXHR(req)) {
+                    authResult = createAuthenticationResultForXHR();
+                }
                 String realm = authResult.realm != null ? authResult.realm : collabUtils.getUserRegistryRealm(securityServiceRef);
                 authResult.setTargetRealm(realm);
                 webReply = createReplyForAuthnFailure(authResult, realm);
@@ -1146,6 +1149,15 @@ public class WebAppSecurityCollaboratorImpl implements IWebAppSecurityCollaborat
             return true;
         }
         return false;
+    }
+
+    private boolean isXHR(HttpServletRequest req) {
+        String xRequestedWithHeader = req.getHeader("X-Requested-With");
+        return (xRequestedWithHeader != null && xRequestedWithHeader.equals("XMLHttpRequest"));
+    }
+
+    private AuthenticationResult createAuthenticationResultForXHR() {
+        return new AuthenticationResult(AuthResult.SEND_401, "X-Requested-With:XMLHttpRequest");
     }
 
     @Override
