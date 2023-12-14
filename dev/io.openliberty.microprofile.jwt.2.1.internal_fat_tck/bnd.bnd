@@ -16,6 +16,8 @@ bVersion=1.0
 javac.source: 11
 javac.target: 11
 
+tested.features: mpJwt-2.1, mpConfig-3.1
+
 src: \
 	fat/src
 
