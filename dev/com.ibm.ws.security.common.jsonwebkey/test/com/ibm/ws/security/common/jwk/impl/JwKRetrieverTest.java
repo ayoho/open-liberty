@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2018, 2024 IBM Corporation and others.
+ * Copyright (c) 2018, 2025 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License 2.0
  * which accompanies this distribution, and is available at
@@ -15,8 +15,11 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.io.IOException;
 import java.net.URL;
+import java.security.Key;
 import java.security.PublicKey;
+import java.util.List;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -25,6 +28,8 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import com.ibm.json.java.JSONObject;
+import com.ibm.websphere.ras.annotation.Sensitive;
+import com.ibm.ws.security.common.jwk.impl.JwKRetriever.JwkKeyType;
 import com.ibm.ws.security.common.jwk.interfaces.JWK;
 import com.ibm.ws.security.test.common.CommonTestClass;
 import com.ibm.wsspi.ssl.SSLSupport;
@@ -38,6 +43,9 @@ public class JwKRetrieverTest extends CommonTestClass {
     private static final String RELATIVE_JWK_MINIMUM_LOCATION = "./com/ibm/ws/security/common/jwk/impl/jwk_minimum_test.json";
     private static final String RELATIVE_PEM_LOCATION = "./com/ibm/ws/security/common/jwk/impl/rsa_key.pem";
     private static SharedOutputManager outputMgr = SharedOutputManager.getInstance().trace("com.ibm.ws.security.common.*=all");
+
+    private final PublicKey remotePublicKey = mockery.mock(PublicKey.class, "remotePublicKey");
+    private final PublicKey localPublicKey = mockery.mock(PublicKey.class, "localPublicKey");
 
     private final String kid = "test-key-id";
 
@@ -207,6 +215,192 @@ public class JwKRetrieverTest extends CommonTestClass {
         PublicKey publicKey = jwkRetriever.getPublicKeyFromJwk(kid, null, true);
 
         assertNull("There must not be a public key.", publicKey);
+    }
+
+    @Test
+    public void testParseJwksUris_jwkEndpointUrlNull() {
+        String jwkEndpointUrl = null;
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation);
+
+        List<String> jwksUris = jwkRetriever.parseJwksUris();
+        assertEquals("Returned list should have had a single null entry instead of being empty. Returned list was: " + jwksUris, 1, jwksUris.size());
+        assertNull("Returned list should have had a single null entry instead of being empty. Returned list was: " + jwksUris, jwksUris.get(0));
+    }
+
+    @Test
+    public void testParseJwksUris_jwkEndpointUrlSimpleString() {
+        String jwkEndpointUrl = "hello world";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation);
+
+        List<String> jwksUris = jwkRetriever.parseJwksUris();
+        assertEquals("Returned list did not have the expected number of entries. Returned list was: " + jwksUris, 1, jwksUris.size());
+        assertEquals(jwkEndpointUrl, jwksUris.get(0));
+    }
+
+    @Test
+    public void testParseJwksUris_jwkEndpointUrlSingleHttpsUrl() {
+        String jwkEndpointUrl = "https://localhost:80/simple/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation);
+
+        List<String> jwksUris = jwkRetriever.parseJwksUris();
+        assertEquals("Returned list did not have the expected number of entries. Returned list was: " + jwksUris, 1, jwksUris.size());
+        assertEquals(jwkEndpointUrl, jwksUris.get(0));
+    }
+
+    @Test
+    public void testParseJwksUris_jwkEndpointUrlSingleFileUrl() {
+        String jwkEndpointUrl = "file:///simple/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation);
+
+        List<String> jwksUris = jwkRetriever.parseJwksUris();
+        assertEquals("Returned list did not have the expected number of entries. Returned list was: " + jwksUris, 1, jwksUris.size());
+        assertEquals(jwkEndpointUrl, jwksUris.get(0));
+    }
+
+    @Test
+    public void testParseJwksUris_jwkEndpointUrlMultipleSimpleStrings() {
+        String jwkEndpointUrl = "hello world, to you ";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation);
+
+        List<String> jwksUris = jwkRetriever.parseJwksUris();
+        assertEquals("Returned list did not have the expected number of entries. Returned list was: " + jwksUris, 2, jwksUris.size());
+        assertEquals("hello world", jwksUris.get(0));
+        assertEquals("to you", jwksUris.get(1));
+    }
+
+    @Test
+    public void testParseJwksUris_jwkEndpointUrlMultipleUrls() {
+        String jwkEndpointUrl = "http://localhost:80, file:///some/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation);
+
+        List<String> jwksUris = jwkRetriever.parseJwksUris();
+        assertEquals("Returned list did not have the expected number of entries. Returned list was: " + jwksUris, 2, jwksUris.size());
+        assertEquals("http://localhost:80", jwksUris.get(0));
+        assertEquals("file:///some/path", jwksUris.get(1));
+    }
+
+    @Test
+    public void testGetKeyFromJwk_jwkEndpointUrlNull_publicKeyTextNonNull() throws Exception {
+        String jwkEndpointUrl = null;
+        String publicKeyText = "some non-null key";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publicKeyText, keyLocation) {
+            @Override
+            protected Key getJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+                return remotePublicKey;
+            }
+
+            @Override
+            protected Key getJwkLocal(String kid, String x5t, @Sensitive String keyText, @Sensitive String location, String use, JwkKeyType keyType) {
+                return localPublicKey;
+            }
+        };
+        try {
+            Key returnedKey = jwkRetriever.getKeyFromJwk(null, null, null, false, JwkKeyType.PUBLIC);
+            assertEquals(localPublicKey, returnedKey);
+        } catch (Exception e) {
+            outputMgr.failWithThrowable(testName.getMethodName(), e);
+        }
+    }
+
+    @Test
+    public void testGetKeyFromJwk_jwkEndpointUrlSingleHttp() throws Exception {
+        String jwkEndpointUrl = "https://localhost/some/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation) {
+            @Override
+            protected Key getJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+                return remotePublicKey;
+            }
+
+            @Override
+            protected Key getJwkLocal(String kid, String x5t, @Sensitive String keyText, @Sensitive String location, String use, JwkKeyType keyType) {
+                return localPublicKey;
+            }
+        };
+        try {
+            Key returnedKey = jwkRetriever.getKeyFromJwk(null, null, null, false, JwkKeyType.PUBLIC);
+            assertEquals(remotePublicKey, returnedKey);
+        } catch (Exception e) {
+            outputMgr.failWithThrowable(testName.getMethodName(), e);
+        }
+    }
+
+    @Test
+    public void testGetKeyFromJwk_jwkEndpointUrlSingleFile() throws Exception {
+        String jwkEndpointUrl = "file:///some/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation) {
+            @Override
+            protected Key getJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+                return remotePublicKey;
+            }
+
+            @Override
+            protected Key getJwkLocal(String kid, String x5t, @Sensitive String keyText, @Sensitive String location, String use, JwkKeyType keyType) {
+                return localPublicKey;
+            }
+        };
+        try {
+            // If the JWKS URI is configured - even if it has a "file:" scheme - it will be considered a remote call
+            Key returnedKey = jwkRetriever.getKeyFromJwk(null, null, null, false, JwkKeyType.PUBLIC);
+            assertEquals(remotePublicKey, returnedKey);
+        } catch (Exception e) {
+            outputMgr.failWithThrowable(testName.getMethodName(), e);
+        }
+    }
+
+    @Test
+    public void testGetKeyFromJwk_jwkEndpointUrlMultiple() throws Exception {
+        String jwkEndpointUrl = "file:///some/path, https://localhost/some/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation) {
+            @Override
+            protected Key getJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+                return remotePublicKey;
+            }
+
+            @Override
+            protected Key getJwkLocal(String kid, String x5t, @Sensitive String keyText, @Sensitive String location, String use, JwkKeyType keyType) {
+                return localPublicKey;
+            }
+        };
+        try {
+            // If the JWKS URI is configured - even if it has a "file:" scheme - it will be considered a remote call
+            Key returnedKey = jwkRetriever.getKeyFromJwk(null, null, null, false, JwkKeyType.PUBLIC);
+            assertEquals(remotePublicKey, returnedKey);
+        } catch (Exception e) {
+            outputMgr.failWithThrowable(testName.getMethodName(), e);
+        }
+    }
+
+    @Test
+    public void testGetKeyFromJwk_jwkEndpointUrlMultiple_noKeyFound() throws Exception {
+        String jwkEndpointUrl = "file:///some/path, https://localhost/some/path";
+        JwKRetriever jwkRetriever = new JwKRetriever(configId, sslConfigurationName, jwkEndpointUrl,
+                jwkSet, sslSupport, hnvEnabled, null, null, signatureAlgorithm, publickey, keyLocation) {
+            @Override
+            protected Key getJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+                return null;
+            }
+
+            @Override
+            protected Key getJwkLocal(String kid, String x5t, @Sensitive String keyText, @Sensitive String location, String use, JwkKeyType keyType) {
+                return localPublicKey;
+            }
+        };
+        try {
+            Key returnedKey = jwkRetriever.getKeyFromJwk(null, null, null, false, JwkKeyType.PUBLIC);
+            assertNull(returnedKey);
+        } catch (Exception e) {
+            outputMgr.failWithThrowable(testName.getMethodName(), e);
+        }
     }
 
     @Test

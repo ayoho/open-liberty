@@ -562,7 +562,6 @@ public class SocialLoginTAI implements TrustAssociationInterceptor, UnprotectedR
         String clientSecret = config.getClientSecret();
         String tokenEndpointAuthMethod = config.getTokenEndpointAuthMethod();
         String authorizationEndpoint = config.getAuthorizationEndpointUrl();
-        String jwksUri = config.getJwkEndpointUrl();
         if (clientId == null || clientId.length() == 0) {
             Tr.error(tc, "INVALID_CONFIG_PARAM", new Object[] { OidcLoginConfigImpl.KEY_clientId, clientId });
             valid = false;

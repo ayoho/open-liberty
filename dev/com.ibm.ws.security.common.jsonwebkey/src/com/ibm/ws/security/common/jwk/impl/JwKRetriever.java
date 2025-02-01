@@ -26,9 +26,12 @@ import java.security.PublicKey;
 import java.security.interfaces.ECPrivateKey;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.StringTokenizer;
 
 import javax.net.ssl.SSLSocketFactory;
 
@@ -183,13 +186,42 @@ public class JwKRetriever {
     @Sensitive
     Key getKeyFromJwk(String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
         Key key = null;
-        boolean isHttp = remoteHttpCall(this.jwkEndpointUrl, keyText, this.keyLocation);
-        if (isHttp) {
-            key = this.getJwkRemote(kid, x5t, use, useSystemPropertiesForHttpClientConnections, keyType);
-        } else {
-            key = this.getJwkLocal(kid, x5t, keyText, keyLocation, use, keyType);
+        List<String> jwkUris = parseJwksUris();
+        for (String jwkUri : jwkUris) {
+            boolean isHttp = remoteHttpCall(jwkUri, keyText, this.keyLocation);
+            if (isHttp) {
+                key = this.getJwkRemote(jwkUri, kid, x5t, use, useSystemPropertiesForHttpClientConnections, keyType);
+            } else {
+                key = this.getJwkLocal(kid, x5t, keyText, keyLocation, use, keyType);
+            }
+            if (key != null) {
+                if (tc.isDebugEnabled()) {
+                    Tr.debug(tc, "Found a matching key at JWKS URI [" + jwkUri + "]");
+                }
+                break;
+            }
         }
         return key;
+    }
+
+    List<String> parseJwksUris() {
+        List<String> jwksUris = new ArrayList<>();
+        if (this.jwkEndpointUrl == null) {
+            // Treats a null jwkEndpointUrl as a single entry of null. This is to ensure the behavior remains the same when
+            // a JWK endpoint URL is not configured and when multiple JWK URIs are configured.
+            jwksUris.add(null);
+            return jwksUris;
+        }
+        String delimiter = ",";
+        StringTokenizer tokenizer = new StringTokenizer(this.jwkEndpointUrl, delimiter);
+        while (tokenizer.hasMoreTokens()) {
+            String jwksUri = tokenizer.nextToken().trim();
+            if (tc.isDebugEnabled()) {
+                Tr.debug(tc, "JWKS URI: " + jwksUri);
+            }
+            jwksUris.add(jwksUri);
+        }
+        return jwksUris;
     }
 
     @Sensitive
@@ -383,8 +415,8 @@ public class JwKRetriever {
     }
 
     @Sensitive
-    protected Key getJwkRemote(String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
-        locationUsed = jwkEndpointUrl;
+    protected Key getJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+        locationUsed = url;
         if (locationUsed == null) {
             locationUsed = keyLocation;
         }
@@ -395,17 +427,17 @@ public class JwKRetriever {
         synchronized (jwkSet) {
             key = getJwkFromJWKSet(locationUsed, kid, x5t, use, null, keyType);
             if (key == null) {
-                key = doJwkRemote(kid, x5t, use, useSystemPropertiesForHttpClientConnections, keyType);
+                key = doJwkRemote(url, kid, x5t, use, useSystemPropertiesForHttpClientConnections, keyType);
             }
         }
         return key;
     }
 
     @FFDCIgnore({ IOException.class, Exception.class })
-    protected Key doJwkRemote(String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
+    protected Key doJwkRemote(String url, String kid, String x5t, String use, boolean useSystemPropertiesForHttpClientConnections, JwkKeyType keyType) throws IOException {
 
         String jsonString = null;
-        locationUsed = jwkEndpointUrl;
+        locationUsed = url;
         if (locationUsed == null) {
             locationUsed = keyLocation;
         }
