@@ -166,3 +166,7 @@ PRIVATE_KEY_JWT_ERROR_GETTING_PRIVATE_KEY.useraction=See the error in the messag
 PRIVATE_KEY_JWT_ERROR_GETTING_PUBLIC_KEY=CWWKS2436E: The client cannot retrieve the [{0}] public key from the [{1}] keystore to calculate the x5t header for the JSON Web Token. {2}
 PRIVATE_KEY_JWT_ERROR_GETTING_PUBLIC_KEY.explanation=The x5t header is the certificate thumbprint of the public key that corresponds to the private key that is used to sign the JSON Web Token. The x5t header helps OpenID Connect providers identify which certificate to use to verify the signature of the JWT. The client encountered an error while retrieving the public key.
 PRIVATE_KEY_JWT_ERROR_GETTING_PUBLIC_KEY.useraction=See the error in the message for more information.
+
+COOKIE_TOO_LARGE=CWWKS2437E: A [{0}] cookie cannot be created because its value is too large. The recommended maximum size for a single cookie is 4096 bytes, but the value of the cookie is [{1}] bytes. The maximum number of cookies that a large cookie value is split into is [{2}] cookies. 
+COOKIE_TOO_LARGE.explanation=
+COOKIE_TOO_LARGE.useraction=
