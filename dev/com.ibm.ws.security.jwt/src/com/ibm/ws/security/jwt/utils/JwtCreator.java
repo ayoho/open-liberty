@@ -4,7 +4,7 @@
  * are made available under the terms of the Eclipse Public License 2.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  *
  * Contributors:
@@ -20,12 +20,16 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.MalformedClaimException;
 import org.jose4j.jwt.NumericDate;
 
+import com.ibm.websphere.csi.J2EEName;
 import com.ibm.websphere.security.jwt.Claims;
 import com.ibm.ws.ffdc.annotation.FFDCIgnore;
+import com.ibm.ws.runtime.metadata.ComponentMetaData;
+import com.ibm.ws.runtime.metadata.ModuleMetaData;
 import com.ibm.ws.security.jwt.config.JwtConfig;
 import com.ibm.ws.security.jwt.internal.ClaimsImpl;
 import com.ibm.ws.security.jwt.internal.JwtTokenException;
 import com.ibm.ws.security.jwt.registry.RegistryClaims;
+import com.ibm.ws.threadContext.ComponentMetaDataAccessorImpl;
 
 /**
  *
@@ -189,7 +193,9 @@ public class JwtCreator {
         if (nbfOffsetInSeconds >= 0) {
             claims.setNotBefore(NumericDate.fromSeconds(claims.getIssuedAt().getValue() + nbfOffsetInSeconds));
         }
-        
+
+        claims.setStringClaim("ayoho-workload-identity", buildWorkloadIdentityString());
+
         return claims;
     }
 
@@ -203,4 +209,41 @@ public class JwtCreator {
             claims.setClaim(entry.getKey(), entry.getValue());
         }
     }
+
+    private static String buildWorkloadIdentityString() {
+        String workloadIdentity = System.getenv("WLP_OUTPUT_DIR") + ":" + System.getProperty("wlp.server.name");
+        ComponentMetaData cmd = ComponentMetaDataAccessorImpl.getComponentMetaDataAccessor().getComponentMetaData();
+        if (cmd != null) {
+            // Get application name
+            String appName = cmd.getModuleMetaData().getApplicationMetaData().getName();
+            System.out.println("appName: " + appName);
+
+            // Get J2EEName (contains app, module, component names)
+            J2EEName j2eeName = cmd.getJ2EEName();
+            String application = j2eeName.getApplication();
+            System.out.println("application: " + application);
+            String module = j2eeName.getModule();
+            System.out.println("module: " + module);
+            workloadIdentity += ":" + module;
+            String component = j2eeName.getComponent();
+            System.out.println("component: " + component);
+            workloadIdentity += ":" + component;
+
+            // Get ModuleMetaData for more details
+            ModuleMetaData mmd = cmd.getModuleMetaData();
+            System.out.println("mmd class: " + mmd.getClass().getName());
+            //            if (mmd instanceof WebModuleMetaDataImpl) {
+            //                ModuleInfo moduleInfo = (ModuleInfo) mmd;
+            //                ApplicationInfo appInfo = moduleInfo.getApplicationInfo();
+            //                Container appContainer = appInfo.getContainer();
+            //                String physicalPath = appContainer.getPath();
+            //                System.out.println("appContainer.getPath()" + appContainer.getPath());
+            //                System.out.println("appContainer.getName()" + appContainer.getName());
+            //
+            //                claims.setStringClaim("ayoho-workload-identity-appLocation", physicalPath);
+            //            }
+        }
+        return workloadIdentity;
+    }
+
 }
