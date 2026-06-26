@@ -27,9 +27,11 @@ import com.ibm.ws.runtime.metadata.ComponentMetaData;
 import com.ibm.ws.runtime.metadata.ModuleMetaData;
 import com.ibm.ws.security.jwt.config.JwtConfig;
 import com.ibm.ws.security.jwt.internal.ClaimsImpl;
+import com.ibm.ws.security.jwt.internal.JwtComponent;
 import com.ibm.ws.security.jwt.internal.JwtTokenException;
 import com.ibm.ws.security.jwt.registry.RegistryClaims;
 import com.ibm.ws.threadContext.ComponentMetaDataAccessorImpl;
+import com.ibm.wsspi.kernel.service.location.WsLocationAdmin;
 
 /**
  *
@@ -194,7 +196,7 @@ public class JwtCreator {
             claims.setNotBefore(NumericDate.fromSeconds(claims.getIssuedAt().getValue() + nbfOffsetInSeconds));
         }
 
-        claims.setStringClaim("ayoho-workload-identity", buildWorkloadIdentityString());
+        setWorkloadIdentityClaims(claims, jwtData.getConfig());
 
         return claims;
     }
@@ -210,24 +212,35 @@ public class JwtCreator {
         }
     }
 
-    private static String buildWorkloadIdentityString() {
-        String workloadIdentity = System.getenv("WLP_OUTPUT_DIR") + ":" + System.getProperty("wlp.server.name");
+    private static void setWorkloadIdentityClaims(JwtClaims claims, JwtConfig jwtConfig) {
+        // TODO
+        WsLocationAdmin locationAdmin = JwtComponent.locationAdminRef.getService();
+
+        String serverName = (locationAdmin != null) ? locationAdmin.getServerName() : System.getProperty("wlp.server.name");
+        claims.setStringClaim("workload-identity-server-name", serverName);
+
+        String hostAndPort = jwtConfig.getResolvedHostAndPortUrl();
+        claims.setStringClaim("workload-identity-host", hostAndPort);
+
+        String workloadIdentity = hostAndPort + ":" + serverName;
+
         ComponentMetaData cmd = ComponentMetaDataAccessorImpl.getComponentMetaDataAccessor().getComponentMetaData();
         if (cmd != null) {
             // Get application name
             String appName = cmd.getModuleMetaData().getApplicationMetaData().getName();
             System.out.println("appName: " + appName);
+            claims.setStringClaim("workload-identity-app-name", appName);
+
+            workloadIdentity += ":" + appName;
 
             // Get J2EEName (contains app, module, component names)
             J2EEName j2eeName = cmd.getJ2EEName();
             String application = j2eeName.getApplication();
             System.out.println("application: " + application);
+
             String module = j2eeName.getModule();
             System.out.println("module: " + module);
-            workloadIdentity += ":" + module;
-            String component = j2eeName.getComponent();
-            System.out.println("component: " + component);
-            workloadIdentity += ":" + component;
+            claims.setStringClaim("workload-identity-app-location", module);
 
             // Get ModuleMetaData for more details
             ModuleMetaData mmd = cmd.getModuleMetaData();
@@ -243,7 +256,7 @@ public class JwtCreator {
             //                claims.setStringClaim("ayoho-workload-identity-appLocation", physicalPath);
             //            }
         }
-        return workloadIdentity;
+        claims.setStringClaim("workload-identity", workloadIdentity);
     }
 
 }

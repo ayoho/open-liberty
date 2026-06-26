@@ -4,7 +4,7 @@
  * are made available under the terms of the Eclipse Public License 2.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-2.0/
- * 
+ *
  * SPDX-License-Identifier: EPL-2.0
  *
  * Contributors:
@@ -26,6 +26,7 @@ import java.util.Map;
 
 import javax.management.DynamicMBean;
 
+import org.osgi.framework.ServiceReference;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
@@ -47,6 +48,8 @@ import com.ibm.ws.security.jwt.config.JwtConfig;
 import com.ibm.ws.security.jwt.config.JwtConfigUtil;
 import com.ibm.ws.security.jwt.utils.JwtUtils;
 import com.ibm.ws.webcontainer.security.jwk.JSONWebKey;
+import com.ibm.wsspi.kernel.service.location.WsLocationAdmin;
+import com.ibm.wsspi.kernel.service.utils.AtomicServiceReference;
 
 @Component(service = JwtConfig.class, immediate = true, configurationPolicy = ConfigurationPolicy.REQUIRE, configurationPid = "com.ibm.ws.security.jwt.builder", name = "jwtConfig", property = "service.vendor=IBM")
 public class JwtComponent implements JwtConfig {
@@ -90,6 +93,9 @@ public class JwtComponent implements JwtConfig {
 
     private final CommonConfigUtils configUtils = new CommonConfigUtils();
 
+    static final String KEY_LOCATION_ADMIN = "locationAdmin";
+    public static final AtomicServiceReference<WsLocationAdmin> locationAdminRef = new AtomicServiceReference<>(KEY_LOCATION_ADMIN);
+
     @org.osgi.service.component.annotations.Reference(target = "(jmx.objectname=WebSphere:feature=channelfw,type=endpoint,name=defaultHttpEndpoint)", cardinality = ReferenceCardinality.OPTIONAL, policy = ReferencePolicy.DYNAMIC, policyOption = ReferencePolicyOption.GREEDY)
     protected void setEndPointInfoMBean(DynamicMBean endpointInfoMBean) {
         httpendpointInfoMBean = endpointInfoMBean;
@@ -126,8 +132,18 @@ public class JwtComponent implements JwtConfig {
         }
     }
 
+    @org.osgi.service.component.annotations.Reference(name = KEY_LOCATION_ADMIN, service = WsLocationAdmin.class)
+    protected void setLocationAdmin(ServiceReference<WsLocationAdmin> ref) {
+        locationAdminRef.setReference(ref);
+    }
+
+    protected void unsetLocationAdmin(ServiceReference<WsLocationAdmin> ref) {
+        locationAdminRef.unsetReference(ref);
+    }
+
     @Activate
     protected void activate(Map<String, Object> properties, ComponentContext cc) {
+        locationAdminRef.activate(cc);
         process(properties);
     }
 
@@ -138,7 +154,7 @@ public class JwtComponent implements JwtConfig {
 
     @Deactivate
     protected void deactivate(int reason, ComponentContext cc) {
-
+        locationAdminRef.deactivate(cc);
     }
 
     private void process(Map<String, Object> props) {
