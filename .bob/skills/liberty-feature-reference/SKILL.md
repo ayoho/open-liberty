@@ -551,6 +551,12 @@ Check `messages.log` or `console.log` after startup.
 
 ---
 
+## Codebase Guide
+
+For deep architectural knowledge grounded in the Open Liberty source code — feature manifest format (`.feature` source files), resolution algorithm (backtracking permutation strategy), singleton constraint implementation, auto-feature mechanics, and versionless resolution — see [CODEBASE-GUIDE.md](./CODEBASE-GUIDE.md).
+
+---
+
 ## Related Skills
 
 | Skill | When to Use |

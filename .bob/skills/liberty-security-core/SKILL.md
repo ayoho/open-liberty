@@ -615,6 +615,12 @@ Open Liberty maintains security hardening guidelines aligned with Center for Int
 
 ---
 
+## Codebase Guide
+
+For deep architectural knowledge grounded in the Open Liberty source code — `AuthenticationService` JAAS design, `UserRegistry` pluggable pattern, auth cache key providers, LTPA token lifecycle, SSL/TLS SPI, SPNEGO/Kerberos integration, and security extension points — see [CODEBASE-GUIDE.md](./CODEBASE-GUIDE.md).
+
+---
+
 ## Related Skills
 
 | Skill | When to Use |

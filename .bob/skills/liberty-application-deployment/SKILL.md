@@ -791,6 +791,12 @@ In addition to `server.xml`, bindings can be placed **inside the application arc
 
 ---
 
+## Codebase Guide
+
+For deep architectural knowledge grounded in the Open Liberty source code — `ApplicationConfigurator` ManagedServiceFactory pattern, state machine internals, `ApplicationHandler` pluggability, `DeployedAppInfoFactory` SPI, classloader hierarchy construction, WAR/EAR/Spring Boot deployer architecture, and dropins synthetic config injection — see [CODEBASE-GUIDE.md](./CODEBASE-GUIDE.md).
+
+---
+
 ## 14. Related Skills
 
 | Skill | When to Use |

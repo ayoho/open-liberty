@@ -424,6 +424,12 @@ The implementation must be an OSGi Declarative Service component (`@Component`).
 
 ---
 
+## Codebase Guide
+
+For deep architectural knowledge grounded in the Open Liberty source code — product extension discovery (`ProductExtension.java`), feature manifest authoring conventions, DS `@Component`/`@Modified`/`@Reference` patterns, metatype IBM extensions, BELL internals (`Bell.java`), and CDI extension SPI — see [CODEBASE-GUIDE.md](./CODEBASE-GUIDE.md).
+
+---
+
 ## Related Skills
 
 | Skill | When to Use |

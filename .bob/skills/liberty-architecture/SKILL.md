@@ -310,6 +310,12 @@ Liberty releases follow `YY.0.0.M` (year, quarter-as-zero, month): e.g. `24.0.0.
 | `liberty-migration` | WAS traditional to Liberty migration, Jakarta EE version diffs, zero-migration upgrade path |
 | `liberty-installation` | Installing Liberty, dev mode, Liberty Tools, featureUtility |
 
+## Codebase Guide
+
+For deep architectural knowledge grounded in the Open Liberty source code — boot sequence, feature manager internals, Config Admin implementation, DS lifecycle patterns, and design decision rationale — see [CODEBASE-GUIDE.md](./CODEBASE-GUIDE.md).
+
+---
+
 ## Related Documentation
 
 | Source | File |
