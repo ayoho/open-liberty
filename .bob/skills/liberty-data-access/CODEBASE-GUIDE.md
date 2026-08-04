@@ -28,15 +28,21 @@ Liberty's data access domain solves the problem of **how to provide managed, poo
 
 **What it is**: `DataSourceService` is a DS component activated by a `<dataSource>` element in `server.xml`. It references a `<jdbcDriver>` configuration (which points to a `<library>` containing the vendor JDBC JAR). `DataSourceService` implements `javax.sql.DataSource` by delegating to the `PoolManager`. Applications look up the data source via JNDI or injection; they receive a proxy (`WSDataSource`) that performs connection pooling, security, and XA coordination transparently.
 
+**`WSJdbcConnection` wrapper**: Applications never hold a raw vendor `Connection`. `WSDataSource.getConnection()` returns a `WSJdbcConnection` — a wrapper that intercepts every JDBC call. This wrapper enforces: (1) double-close protection (closing twice is a no-op rather than an error); (2) connection validation before return to application (stale connections detected here); (3) statement cache access (`WSJdbcConnection.prepareStatement()` checks the `CacheMap` before creating a new `PreparedStatement`); (4) autocommit management consistent with JTA state. The wrapper is the central enforcement point for Liberty's JDBC contract guarantees.
+
 **Why this was chosen**: Making `DataSourceService` a DS component means data sources respond to config changes via `@Modified` — pool size, timeout, and vendor properties can be updated without application restart or re-injection. Applications do not hold references to the raw JDBC driver; they always go through the pool.
 
 **Key entry points**:
 - `com.ibm.ws.jdbc/src/com/ibm/ws/jdbc/DataSourceService.java` — DS root component; `activate()` creates `PoolManager`; `modified()` updates pool config; `deactivate()` drains and destroys the pool.
 - `com.ibm.ws.jdbc/src/com/ibm/ws/jdbc/WSDataSource.java` — The `DataSource` proxy exposed to applications; `getConnection()` delegates to `PoolManager.getConnection()`.
 
-### 2.2 JCA Connection Pool (`PoolManager`)
+### 2.2 JCA Connection Pool (`PoolManager`) — Sharing, Statement Cache, and XA Enlistment
 
 **What it is**: `PoolManager` (in `com.ibm.ws.jca.cm`) is a JCA connection manager adapted for JDBC use. It maintains free and in-use pools (`MCWrapperList`). Each `MCWrapper` wraps one managed connection (`javax.resource.spi.ManagedConnection`). The pool manager enforces `maxPoolSize`, `minPoolSize`, `connectionTimeout`, `idleTimeout`, and statement cache settings. When a connection is requested, `PoolManager.getConnection()` either returns a free connection, creates a new one, or blocks until `connectionTimeout` expires.
+
+**Connection sharing within a transaction**: A critical design detail: when an application calls `getConnection()` a second time within the same JTA transaction (e.g., from two different DAO methods in the same transaction boundary), the pool returns the **same physical connection** rather than allocating a second one. `ConnectorServiceImpl` maintains a thread-local `UOWCoordinator`-keyed map of connections in use. When `getConnection()` is called, the pool checks this map first. This means two `Connection` objects from the same `DataSource` in the same transaction actually share the same JDBC driver connection — vital for correct autocommit and isolation level semantics.
+
+**Statement cache**: `MCWrapper` maintains a `PreparedStatementCacheKey`-indexed `CacheMap`. When `connection.prepareStatement(sql)` is called, the cache is checked first. Cache hits return the existing `PreparedStatement` after resetting parameters. Cache misses create a new statement and add it to the cache (evicting LRU entry if full). The cache is per-managed-connection, not per-pool — so a pool with `maxPoolSize=10` has 10 independent caches. `statementCacheSize` (default 10) controls entries per cache. Large caches improve hit rates for applications with many distinct SQL patterns; too large wastes JDBC driver cursor resources.
 
 **Why JCA architecture**: Using the JCA connection manager architecture rather than a custom pool means JDBC shares infrastructure with JMS and other JCA resource adapters. XA transaction enlistment/delisting, security handles, and connection sharing within a transaction are handled by the generic JCA layer, not duplicated per resource type.
 
@@ -49,15 +55,24 @@ Liberty's data access domain solves the problem of **how to provide managed, poo
 
 **What it is**: `JDBCDriverService` loads the vendor JDBC driver JAR using the Liberty classloader from the `<library>` reference. It detects the driver class via JDBC `DriverManager` or explicit `driverClass` attribute. Once loaded, it creates `ManagedConnectionFactory` instances. Each vendor has a `DatabaseHelper` subclass that provides vendor-specific behaviour: statement cache key format, exception mapping, XA recovery, and connection pool validation queries.
 
+**DatabaseHelper responsibilities in detail**:
+- **Exception classification**: `getExceptionIdentificationString()` maps vendor error codes to Liberty error categories (`CONNECTION_ERROR_OCCURRED`, `STALE_CONNECTION`, `STALE_STATEMENT`). A stale connection causes `MCWrapper` to mark the connection dead and remove it from the pool (never returned to free pool). The classification is critical to connection pool health — misclassification causes either premature pool drain or accumulation of dead connections.
+- **Statement cache key**: `getStatementCacheKey()` produces the key used to look up cached `PreparedStatement`s. Most helpers include the SQL string, result set type, result set concurrency, and `holdability`. The DB2 JCC helper additionally includes the `clientInfo` context because DB2 cursor behaviour can vary by client info properties.
+- **Validation SQL**: `getTestConnectionCustomSQL()` returns a lightweight validation query (e.g., `SELECT 1 FROM SYSIBM.SYSDUMMY1` for DB2, `SELECT 1 FROM DUAL` for Oracle). Used when `connectionTimeout` is reached and Liberty tests whether an idle connection is still alive before returning it to the application.
+
 **Key entry points**:
 - `com.ibm.ws.jdbc/src/com/ibm/ws/jdbc/internal/JDBCDriverService.java` — Driver loading and `ManagedConnectionFactory` creation; see `createManagedConnectionFactory()` for driver detection logic.
 - `com.ibm.ws.jdbc/src/com/ibm/ws/jdbc/internal/JDBCDrivers.java` — Enum-like knowledge base of known driver class names per vendor; used for auto-detection.
 - `com.ibm.ws.jdbc/src/com/ibm/ws/rsadapter/impl/DatabaseHelper.java` — Base class for vendor helpers; see `getExceptionIdentificationString()` for how vendor errors are mapped to Liberty error codes.
 - `com.ibm.ws.jdbc/src/com/ibm/ws/rsadapter/impl/DB2JCCHelper.java` — DB2 JCC-specific implementation of `DatabaseHelper`; good example of vendor customisation.
 
-### 2.4 Transaction Integration (XA and Local)
+### 2.4 Transaction Integration — XA, Local Transactions, and XA Recovery
 
 **What it is**: When a connection is obtained inside a JTA transaction boundary, the JCA connection manager automatically enlists the connection's `XAResource` (for XA-capable data sources) or uses a `LocalTransaction` handle (for non-XA). The `WSRdbXaResourceImpl` wraps the vendor `XAResource` and participates in the two-phase commit protocol with the transaction manager (`com.ibm.ws.transaction`). Connection sharing (returning the same connection within the same transaction) is implemented in `PoolManager` via transaction context lookup.
+
+**XA two-phase commit lifecycle**: At transaction commit: the JTA transaction manager (`UOWManager`) calls `prepare()` on all enlisted `XAResource`s. Each resource returns `XA_OK` (ready to commit), `XA_RDONLY` (read-only, no commit needed), or throws `XAException` (rollback). If all prepared successfully, the manager calls `commit()`. The prepared-not-committed state is written to a transaction log (`com.ibm.ws.transaction.recovery`) so that, on recovery after a crash, `commit()` can be re-driven. This is the `heuristic commitment` scenario: a resource that prepared but did not receive commit will see `XAResource.recover()` called on next startup, and Liberty replays commit/rollback from the transaction log.
+
+**Last-participant optimization (LPO)**: When exactly one resource in a transaction is non-XA (local transaction only), Liberty applies the Last Participant Optimization: the non-XA resource is committed last, after all XA resources have successfully committed. If the non-XA commit fails, no compensation is possible (it's the last one), but the XA resources have already committed — this is a known risk, logged as `WTRN0062W`. LPO avoids requiring XA for single-database scenarios while preserving recovery semantics for all XA participants.
 
 **Key entry points**:
 - `com.ibm.ws.jdbc/src/com/ibm/ws/rsadapter/impl/WSRdbXaResourceImpl.java` — XA resource wrapper; `prepare()`, `commit()`, `rollback()` delegate to vendor `XAResource`.
@@ -96,7 +111,7 @@ DataSourceService.activate(Map<String,Object>)
 - `<properties.postgresql>` — PostgreSQL
 - `<properties>` — generic; works with any driver via JDBC URL
 
-**Metatype location**: `com.ibm.ws.jdbc/resources/OSGI-INF/metatype/metatype.xml`
+**Metatype location**: `com.ibm.ws.jdbc.metatype/resources/OSGI-INF/metatype/metatype.xml`
 
 **Dynamic reconfiguration**: Changing `maxPoolSize` or `connectionTimeout` in `server.xml` triggers `DataSourceService.modified()`, which updates `PoolManager` parameters without destroying existing connections in the pool. Changing the JNDI name or driver class requires pool destruction and recreation (brief connection interruption).
 

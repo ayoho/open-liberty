@@ -150,6 +150,10 @@ Set dynamically at runtime via Admin Center or REST connector without server res
 | `CWWKG*` | Config processing |
 | `CWWKB*` | Batch |
 | `CWRLS*` | Request logging / timing |
+| `CWMOT*` | MicroProfile Telemetry (OpenTelemetry) |
+| `CWMMC*` | MicroProfile Metrics |
+| `SRVE*` | Servlet / web container (internal) |
+| `DSRA*` | DataSource / JDBC resource adapter |
 
 ### Message Severity Suffixes
 
@@ -429,6 +433,10 @@ Common issues when configuring MicroProfile Telemetry / OpenTelemetry:
 | OTLP endpoint not reachable | Verify `otel.exporter.otlp.endpoint` URL; check network/firewall |
 | Traces export but metrics don't | mpTelemetry 1.x only exports traces; upgrade to `mpTelemetry-2.0` for metrics |
 | Multiple apps mixing telemetry | Use application-level config (`microprofile-config.properties`) per app with distinct `otel.service.name` |
+| `CWMOT5006W` logged | Runtime disables telemetry (env/system property) but an app's MP Config enables it — app config wins; use only one config source |
+| `CWMOT5007W` logged | Runtime enables telemetry but an app's MP Config disables it — runtime wins for that app; use only one config source |
+
+**Rule:** Do not mix environment variables/system properties and MicroProfile Config properties to control `otel.sdk.disabled`. Use one source consistently.
 
 Enable OpenTelemetry SDK debug logging:
 ```properties

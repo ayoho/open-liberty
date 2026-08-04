@@ -32,29 +32,94 @@ Liberty's kernel exists to solve a single problem: **how do you compose a Java E
 
 **What it is**: Liberty runs inside a single Eclipse Equinox OSGi framework. Every service component is described in a DS component descriptor (`OSGI-INF/*.xml` or via `@Component` annotations). The DS runtime registers service *declarations* in the service registry immediately, but defers class loading and instantiation until a component is actually needed (i.e., until another component binds to it, or it becomes `immediate=true`).
 
-**Why this was chosen**: Hundreds of DS components are declared at startup but only a fraction are ever activated. This gives Liberty sub-second startup even though the product contains thousands of classes—class loading cost is proportional to what is *used*, not what is *installed*.
+**Why this was chosen**: Hundreds of DS components are declared at startup but only a fraction are ever activated. This gives Liberty sub-second startup even though the product contains thousands of classes — class loading cost is proportional to what is *used*, not what is *installed*.
+
+**DS component lifecycle**: The DS state machine has four states: *unsatisfied* (a required `@Reference` is missing), *registered* (all dependencies satisfied; service published to registry but component not yet instantiated), *active* (instantiated; `@Activate` has run), and *deactivating* (a required reference disappeared; `@Deactivate` running). The "late and lazy" property comes from the registered → active transition being deferred until the first service consumer appears. In practice, Liberty's feature manager installs bundles, DS registers thousands of service declarations, but only the subset that are actually needed during the request path ever reach the *active* state.
+
+**DS reference cardinality and policy**:
+- `MANDATORY` (default): component will not activate until the reference is satisfied. The component is deactivated if the reference disappears.
+- `OPTIONAL`: component activates even without the reference. The bound service may be `null`.
+- `MULTIPLE` + `policy=DYNAMIC`: component activates once; the bind/unbind methods are called as matching services appear/disappear. Used heavily in Liberty for services that manage a variable number of applications or features (e.g., `FeatureManager` tracking feature bundles).
+- `AT_LEAST_ONE`: at least one matching service must be present; activates with the first one.
+
+**Service ranking and selection**: When multiple services satisfy the same `@Reference`, DS selects the highest `service.ranking` integer (lowest value = 0 by default). Liberty uses this for `UserRegistry` federation (multiple registries, one selected by type property) and for `ApplicationHandler` selection by type.
 
 **Key entry points**:
-- `com.ibm.ws.kernel.feature.core/src/com/ibm/ws/kernel/feature/internal/FeatureManager.java` — itself a DS component (`@Component(immediate=true)`); this is the first non-kernel service to activate after bundles are installed. See its `@Activate` method for the post-resolution startup sequence.
+- `com.ibm.ws.kernel.feature.core/src/com/ibm/ws/kernel/feature/internal/FeatureManager.java` — itself a DS component (`@Component(immediate=true)`); first non-kernel service to activate after bundles are installed. See its `@Activate` method for the post-resolution startup sequence.
+- `com.ibm.ws.kernel.service/src/com/ibm/wsspi/kernel/service/utils/ServerQuiesceListener.java` — SPI implemented by any DS component that needs a graceful quiesce callback before server shutdown. `FeatureManager` registers as `ServerQuiesceListener` to drain inflight work before deactivating features.
 
-### 2.2 Config Admin + File Monitor Integration
+### 2.2 Kernel Bootstrap and Start-Level Sequencing
+
+**What it is**: The Liberty JVM main class is `com.ibm.ws.kernel.boot.Launcher`. Before OSGi starts, `Launcher` reads `bootstrap.properties`, constructs `BootstrapConfig` (resolving all path variables), and passes it to `FrameworkManager`. `FrameworkManager` creates the Equinox OSGi framework instance, installs the *kernel bundles* (a fixed, minimal set), and then starts the framework. OSGi start levels are used to impose a strict activation ordering on those kernel bundles:
+
+| Start level | What activates |
+|-------------|---------------|
+| 1 | Logging service (`com.ibm.ws.logging`) — **all subsequent FFDC/trace uses this** |
+| 2 | File monitor, variable registry, location services |
+| 3 | Config Admin (`com.ibm.ws.config`) → `server.xml` is parsed here |
+| 4 | Feature Manager (`com.ibm.ws.kernel.feature.core`) |
+| 5+ | Feature bundles install at their designated start levels |
+
+**Why start levels instead of Require-Bundle**: Circular dependency risks between kernel bundles make `Require-Bundle` impractical. Start levels provide coarse ordering that is declared in the kernel manifest rather than in individual bundle headers, keeping each kernel bundle independent. The logging bundle intentionally has no OSGi dependencies — it must be ready before any other code can log.
+
+**`FrameworkReady` gate**: `FeatureManager` registers a `FrameworkReady` OSGi service after feature provisioning completes. `FrameworkManager.waitForReady()` blocks until this service appears in the registry. Only after this gate passes does Liberty print the "server is ready" message and does the process enter its steady-state event loop. Any feature that is still activating after `FrameworkReady` is registered will not delay this message — this is a common source of confusion when diagnosing "ready but not working" startup issues.
+
+**Key entry points**:
+- `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/Launcher.java` — JVM main; resolves paths and delegates to `FrameworkManager`
+- `com.ibm.ws.kernel.boot.nested/src/com/ibm/ws/kernel/launch/internal/FrameworkManager.java` — Equinox framework creation, kernel bundle installation, `waitForReady()`
+- `com.ibm.ws.kernel.boot.nested/src/com/ibm/ws/kernel/launch/internal/Provisioner.java` — installs kernel bundles directly via `BundleContext.installBundle()` before DS is running
+
+### 2.3 Feature Resolution — Backtracking Constraint Solver
+
+**What it is**: `FeatureResolverImpl` is a constraint solver that builds the transitive closure of features requested in `<featureManager>`. The input is a set of short names or symbolic names; the output is a flattened, conflict-free set of bundle JARs to install and start.
+
+**Why it is non-trivial**: Liberty features participate in a *singleton constraint* — only one version of any feature with the same base name may be active simultaneously. This means the resolver cannot simply take the first version that satisfies a dependency; it must find a globally consistent assignment. `ibm.tolerates` complicates this further: a feature declares it can tolerate alternative versions, meaning the resolver has *choices* when multiple versions of a dependency exist. The resolver implements backtracking over a permutation stack — when a choice leads to a conflict further down the dependency tree, it backtracks and tries the next alternative.
+
+**Resolution algorithm** (from `FeatureResolverImpl` class-level Javadoc):
+1. Start with the user-requested feature set.
+2. For each feature, expand its `-features=` dependencies.
+3. For each dependency, check if a version is already selected:
+   - If same version: merge.
+   - If different version: check `ibm.tolerates`. If the existing version is tolerable, continue. If not, record a conflict.
+4. If any conflict: backtrack to the last choice point and try the next alternative.
+5. If no alternatives remain: emit `CWWKF0033E` (singleton conflict) and continue with as much as resolved successfully.
+6. If no conflicts: install the resolved bundle set and start bundles at their designated start levels.
+
+**Auto-features**: After the primary resolution completes, `FeatureManager` runs an additional pass: scan all `auto` visibility features, evaluate their `IBM-Provision-Capability` OSGi filter expressions against the installed feature set, and activate any auto-features whose filters are satisfied. This is how `cdi-2.0-appSecurity-1.0` integration bundles activate automatically — they require two other features to be present.
+
+**Key entry points**:
+- `com.ibm.ws.kernel.feature.core/src/com/ibm/ws/kernel/feature/internal/FeatureResolverImpl.java` — the solver; class-level Javadoc is authoritative; `resolve()` is the entry method
+- `com.ibm.ws.kernel.feature.core/src/com/ibm/ws/kernel/feature/internal/subsystem/FeatureRepository.java` — loads and caches feature manifests from disk; see `init()` for how product extensions and user extensions are discovered
+- `com.ibm.ws.kernel.feature.core/src/com/ibm/ws/kernel/feature/internal/subsystem/FeatureDefinitionUtils.java` — parses `ibm.tolerates`, `singleton`, `visibility` directives from manifest headers
+
+### 2.4 Config Admin + File Monitor Integration
 
 **What it is**: Liberty implements the OSGi Config Admin specification. `ServerXMLConfiguration` parses `server.xml` (and includes/configDropins) and publishes `Configuration` objects to the Config Admin service registry. Each `Configuration` has a PID that matches a DS component's `configurationPid`. When `server.xml` changes, File Monitor notifies `ServerXMLConfiguration`, which re-parses and updates the affected `Configuration` objects, which in turn triggers DS `@Modified` (or deactivate/reactivate) on each dependent component.
 
 **Why this was chosen**: Decouples configuration parsing from component implementation. A component does not need to know it lives in an XML-configured runtime — it just receives a `Map<String,Object>` at activation and modification. This also enables the "zero restart for config changes" guarantee.
 
+**Singleton vs. factory PIDs**: OSGi Config Admin distinguishes *singleton* PIDs (one `Configuration` per PID; `ManagedService`) from *factory* PIDs (multiple `Configuration`s per PID; `ManagedServiceFactory`). Liberty maps singleton XML elements (e.g., `<logging>`) to singleton PIDs and elements with an `id` attribute (e.g., `<dataSource id="myDS">`) to factory PIDs. The factory PID key is of the form `<basePID>~<id>`. `ApplicationConfigurator` is a canonical example of a `ManagedServiceFactory` — it manages one state machine per `<application id="...">` element.
+
+**MetaTypeRegistry merge**: Before Config Admin delivers a `Configuration` to a component, `MetaTypeRegistry` merges the parsed XML attributes with metatype defaults. This means components always receive a complete `Map<String,Object>` with all declared attributes — even those not present in `server.xml` receive their default values. The merge logic lives in `com.ibm.ws.config` and is the "config-by-exception" guarantee: operators only configure what differs from defaults.
+
 **Key entry points**:
 - `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/ServerXMLConfiguration.java` — DS component that watches `server.xml`; see `updated()` for the re-parse and Config Admin notification path.
 - `com.ibm.ws.config/src/com/ibm/ws/config/admin/internal/ConfigurationAdminImpl.java` — Config Admin implementation; delegates to `ConfigAdminServiceFactory` for `Configuration` object lifecycle.
+- `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/MetaTypeRegistry.java` — merges metatype defaults with XML values; the "config-by-exception" logic.
 
-### 2.3 OSGi Region Digraph (Bundle Visibility Isolation)
+### 2.5 OSGi Region Digraph (Bundle Visibility Isolation)
 
-**What it is**: Liberty uses Eclipse Equinox's Region Digraph (`org.eclipse.equinox.region`) to enforce classpath isolation between application bundles and kernel/feature bundles. Each feature region exposes only the packages declared in `IBM-API-Package` and `IBM-SPI-Package` manifest headers.
+**What it is**: Liberty uses Eclipse Equinox's Region Digraph (`org.eclipse.equinox.region`) to enforce classpath isolation between application bundles and kernel/feature bundles. Each feature region exposes only the packages declared in `IBM-API-Package` and `IBM-SPI-Package` manifest headers to the application region.
 
-**Why this was chosen**: Prevents application code from accidentally importing internal Liberty classes, which would break with runtime upgrades. The zero-migration guarantee depends on this boundary being enforced.
+**Why this was chosen**: Without region isolation, an application that imports `com.ibm.ws.classloading.internal.*` (a Liberty internal package) would compile and run today — but could break in any future Liberty version when that internal package changes. The zero-migration guarantee only holds if that package is never exported to applications. Region Digraph enforces the boundary at the classloader level: an application classloader simply cannot see packages that are not declared in `IBM-API-Package`.
+
+**Region topology**: Liberty creates three region types:
+1. **Kernel region** — contains Liberty kernel bundles; no packages exported outward except through explicit connections.
+2. **Feature regions** — each feature has its own region; bundles within the feature are wired to each other freely, but packages cross feature boundaries only through `IBM-API-Package` / `IBM-SPI-Package` gateway connections.
+3. **Application region** — application classloaders; connected to feature regions via gateway policies derived from `IBM-API-Package` declarations and the application's `apiTypeVisibility` configuration.
 
 **Key entry point**:
-- `FeatureManager.java` imports `org.eclipse.equinox.region.RegionDigraph` (visible in class-level imports); region construction is part of bundle provisioning after feature resolution.
+- `FeatureManager.java` — imports `org.eclipse.equinox.region.RegionDigraph`; region construction is part of bundle provisioning after feature resolution. See `installBundles()` for where feature regions are created and gateway connections established.
 
 ---
 
@@ -105,11 +170,11 @@ The full boot sequence is:
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `Launcher` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/Launcher.java` | JVM main entry; parses command-line args, constructs `BootstrapConfig`, delegates to `FrameworkManager` |
-| `BootstrapConfig` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/internal/BootstrapConfig.java` | Holds all resolved paths (`wlp.install.dir`, `wlp.user.dir`, server name); immutable after construction |
+| `Launcher` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/Launcher.java` | JVM main entry; parses command-line args, constructs `BootstrapConfig`, delegates to `FrameworkManager` |
+| `BootstrapConfig` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/BootstrapConfig.java` | Holds all resolved paths (`wlp.install.dir`, `wlp.user.dir`, server name); immutable after construction |
 | `FrameworkManager` | `com.ibm.ws.kernel.boot.nested/src/com/ibm/ws/kernel/launch/internal/FrameworkManager.java` | Creates and manages the Equinox framework lifecycle; see `launchFramework()` for startup and `shutdown()` for orderly stop |
 | `Provisioner` | `com.ibm.ws.kernel.boot.nested/src/com/ibm/ws/kernel/launch/internal/Provisioner.java` | Installs kernel bundles into the newly started framework before DS takes over |
-| `KernelStartLevel` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/internal/KernelStartLevel.java` | Defines OSGi start-level constants used to sequence kernel bundle activation order |
+| `KernelStartLevel` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/KernelStartLevel.java` | Defines OSGi start-level constants used to sequence kernel bundle activation order |
 
 ### 4.2 Feature Manager & Resolution
 
@@ -144,7 +209,7 @@ The full boot sequence is:
 | Class | Path | What to look for |
 |-------|------|------------------|
 | `LogProviderImpl` | `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/LogProviderImpl.java` | Activated at start level 1, before any other service; see `activate()` for log directory setup |
-| `TrConfigurator` | `com.ibm.ws.logging/src/com/ibm/websphere/ras/TrConfigurator.java` | Static entry point for trace configuration; called before DS is running |
+| `TrConfigurator` | `com.ibm.ws.logging.core/src/com/ibm/websphere/ras/TrConfigurator.java` | Static entry point for trace configuration; called before DS is running |
 
 ---
 

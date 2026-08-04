@@ -26,11 +26,15 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 Monitor SPI — Probe-Based Instrumentation
+### 2.1 Monitor SPI — Probe-Based Instrumentation Architecture
 
 **What it is**: The Liberty monitor SPI allows components to instrument themselves using `@ProbeSite` annotations that define instrumentation injection points. The `MonitorManager` DS component uses bytecode injection (ASM) to insert probe calls at annotated method boundaries. Any bundle that registers a `Monitor` service receives callbacks for matching probe sites. This is how connection pool statistics, servlet request counts, and thread pool metrics are collected.
 
 **The probe lifecycle**: (1) At startup, `MonitorManager` discovers all `@ProbeSite`-annotated classes and records their injection points in a registry. (2) When a `Monitor` DS service is registered (e.g., `ConnectionPoolMonitor`), `MonitorManager` uses ASM to bytecode-inject the probe call at the designated method boundary in the target class. (3) At each probe call site, a null check guards the callback — zero overhead when no monitor is registered. (4) When the `Monitor` service is unregistered, the injection is not reversed (class is already loaded), but the callback is removed from the dispatch list.
+
+**Probe site annotation model**: `@ProbeSite` is placed on a method inside a class annotated with `@Probe`. The annotation specifies *where* in the method the probe fires: `AT_ENTRY` (before the method body), `AT_RETURN` (on normal return), `AT_THROW` (when an exception is thrown), `AT_CATCH` (when an exception is caught). A `Monitor` implementation declares which probe sites it is interested in using a filter expression (by class name, method name, and timing point). `MonitorManager` only injects at sites that have at least one active `Monitor` subscription.
+
+**PMI (Performance Monitoring Infrastructure) statistics model**: Liberty's PMI layer is a hierarchical statistics model inherited from WebSphere traditional. Statistics are organized into groups (e.g., `ConnectionPool`, `ThreadPool`, `WebContainer`), each with individual statistics (`maxSize`, `currentSize`, `waitTime`). The `StatsFactory` API creates a named statistics group; each stat is a `CountStatistic`, `BoundedRangeStatistic`, or `TimeStatistic`. MBean attributes for each group map directly to these statistics — the PMI model is the source of truth for both JMX and MP Metrics.
 
 **Why bytecode instrumentation**: The component being instrumented (e.g., `PoolManager`, `ServletWrapper`) does not need to contain monitoring code. Monitoring is an optional concern — if no `Monitor` is registered, the instrumentation overhead is negligible (just a null check). This preserves the separation between production and monitoring concerns.
 
@@ -45,6 +49,10 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 **What it is**: FFDC is Liberty's exception capture mechanism. When an exception propagates through a component that has called `FFDCFilter.processException(...)`, the `BaseFFDCService` writes an incident report (`ffdc_*.log`) to `${server.output.dir}/logs/ffdc/`. The report includes: exception type and stack, JVM state, diagnostic data contributed by any `IncidentForwarder` registered for the exception type. FFDC is the first diagnostic tool to read when an unexplained server failure occurs.
 
+**FFDC report anatomy**: Each FFDC file has four sections: (1) **Header**: timestamp, exception class, calling class/method. (2) **Stack trace**: the full exception chain including all `Caused by:` entries. (3) **Introspected objects**: diagnostic state contributed by the catching component (e.g., connection pool current size for a `ConnectionWaitTimeoutException`). (4) **JVM summary**: thread count, heap usage, loaded class count — a snapshot at the moment of failure. The `IncidentForwarder` SPI allows any DS component to add to section (3) for specific exception types it understands.
+
+**FFDC vs. logging**: `FFDCFilter.processException()` is not a logging mechanism — it captures diagnostic snapshots. A single logical error may generate multiple FFDC files if exceptions are caught and rethrown at multiple levels. Look for FFDC files with the same timestamp as the logged error in `messages.log`; the FFDC file for the deepest `Caused by:` usually contains the most useful diagnostic data.
+
 **Key entry points**:
 - `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/BaseFFDCService.java` — Core FFDC service; `createIncident()` assembles and writes the report.
 - `com.ibm.ws.logging/src/com/ibm/ws/logging/data/FFDCData.java` — Data structure for one FFDC record; includes exception, introspected objects, and server state.
@@ -54,6 +62,10 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 **What it is**: HPEL is Liberty's binary logging format. Instead of plain text `messages.log`, HPEL writes compact binary records to a repository directory. Records can be filtered and replayed with `logViewer` (the HPEL binary log viewer). HPEL supports time-range queries, level filtering, and thread ID filtering — enabling post-hoc analysis of complex multi-threaded issues without re-running the scenario.
 
+**HPEL vs. text logging performance**: HPEL writes binary records directly to disk without string formatting. Text logging (`messages.log`) converts every log record to a human-readable string before writing. In high-throughput scenarios (10,000+ requests/second with trace enabled), HPEL is significantly faster. The `logViewer` performs the formatting on demand, with full filtering support.
+
+**HPEL repository structure**: The HPEL binary repository is a directory structure under `${server.output.dir}/logs/hpelRepository/`. Within it, records are organized by time window (configurable). `logViewer` reads across all repository files to satisfy a time-range query. There is no single `messages.log` equivalent — all records are in binary format. Ship the entire repository directory to IBM Support for analysis.
+
 **Key entry points**:
 - `com.ibm.ws.logging.hpel/src/com/ibm/ejs/ras/hpel/HpelHelper.java` — Core HPEL utilities; binary record format.
 - `com.ibm.ws.logging.hpel.osgi/src/...` — OSGi-integrated HPEL writer; activated when `logProvider-1.0` feature is present.
@@ -62,6 +74,10 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 ### 2.4 Request Timing — Slow and Hung Request Detection
 
 **What it is**: The `requestTiming` feature instruments request lifecycle events using the probe SPI. `SlowRequestProbeExtension` fires when a request exceeds the `slowRequestThreshold`. `HungRequestProbeExtension` fires when a request exceeds `hungRequestThreshold` and periodically logs the thread stack trace. Both use probe callbacks registered on servlet and JDBC probe sites to track active request timing.
+
+**Nested probe correlation**: `HungRequestProbeExtension` maintains a per-thread stack of active request timing entries using probe callbacks from both the HTTP request probe sites and the JDBC call probe sites. A single HTTP request context contains nested JDBC call entries pushed by their own probe sites. This gives `requestTiming` the ability to report the full nested timing tree — critical for diagnosing whether a slow HTTP response is caused by slow JDBC calls, a slow downstream service call, or slow application logic. The hung request log shows this nesting: `HTTP request (4200ms) → JDBC query "SELECT..." (3950ms)`.
+
+**Sampling and overhead**: At `sampleRate="1"` (every request), the timing context push/pop overhead is measurable at very high request rates. For production at >5000 req/s, consider `sampleRate="10"` (monitor 1 in 10 requests) to reduce overhead while still catching slow requests. The hung request threshold (`hungRequestThreshold`) always monitors the current state of requests to detect hangs — `sampleRate` only applies to the slow request threshold evaluation.
 
 **Key entry points**:
 - `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/SlowRequestProbeExtension.java` — DS component; subscribes to HTTP request start/end probes; fires when threshold exceeded.
@@ -86,8 +102,8 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 **Key entry points**:
 - `com.ibm.ws.logging/src/com/ibm/ws/logging/source/TraceSource.java` — Emits trace records to the collector pipeline.
-- `com.ibm.ws.logging/src/com/ibm/ws/logging/source/AccessLogSource.java` — Emits HTTP access log records; activated by `httpAccess` log format.
-- `com.ibm.ws.logging/src/com/ibm/ws/logging/source/FFDCSource.java` — Emits FFDC events to the collector pipeline.
+- `com.ibm.ws.transport.http/src/com/ibm/ws/http/logging/source/AccessLogSource.java` — Emits HTTP access log records; activated by `httpAccess` log format.
+- `com.ibm.ws.collector.manager/src/com/ibm/ws/logging/ffdc/source/FFDCSource.java` — Emits FFDC events to the collector pipeline.
 
 ---
 
@@ -155,7 +171,7 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 |-------|------|------------------|
 | `SlowRequestProbeExtension` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/SlowRequestProbeExtension.java` | Slow request detection; threshold evaluation |
 | `HungRequestProbeExtension` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/HungRequestProbeExtension.java` | Hung request detection; periodic thread dump |
-| `TimingContextManager` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/internal/TimingContextManager.java` | Per-request timing context; correlates nested JDBC/servlet probes within one HTTP request |
+| `HungRequestManager` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/manager/HungRequestManager.java` | Manages per-thread timing entries; correlates nested JDBC/servlet probes within one HTTP request |
 
 ### 4.5 Log Sources
 
@@ -207,8 +223,8 @@ A: In container environments, the standard pattern is to write logs to stdout/st
 **Q: How does `monitor filter="ConnectionPool"` relate to MP Metrics?**
 A: The `monitor filter` attribute enables JMX MBean registration for the named subsystem's `StatsFactory` statistics group. When `mpMetrics-5.0` is also active, the `SRMetricRegistryAdapter` bridges all registered `StatsFactory` groups to Prometheus counters and gauges at `/metrics`. There is a single statistics collection; the filter controls JMX visibility; MP Metrics always gets everything from active `StatsFactory` groups.
 
-**Q: What is the `TimingContextManager` and how does it correlate nested probe calls?**
-A: `TimingContextManager` keeps a thread-local stack of active timing contexts. When an HTTP request starts (servlet probe fires), a root context is pushed. When a JDBC call within that request fires the JDBC probe, a child context is pushed as a sub-request. When the JDBC probe completes, the child is popped. This allows `requestTiming` to report the full timing tree: `HTTP request (4200ms) → JDBC query "SELECT..." (3950ms)`, pinpointing the slow sub-operation.
+**Q: How does `requestTiming` correlate nested JDBC calls within an HTTP request?**
+A: `HungRequestProbeExtension` and `SlowRequestProbeExtension` maintain per-thread stacks of active request timing entries. When an HTTP request starts (servlet probe fires), a root entry is created. When a JDBC call within that request fires the JDBC probe, a child entry is created as a sub-request. When the JDBC probe completes, the child entry is closed. This allows `requestTiming` to report the full timing tree: `HTTP request (4200ms) → JDBC query "SELECT..." (3950ms)`, pinpointing the slow sub-operation.
 
 ---
 

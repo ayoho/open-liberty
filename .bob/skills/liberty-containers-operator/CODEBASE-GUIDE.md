@@ -27,26 +27,28 @@ Liberty's containers domain solves the problem of **how to run Liberty in contai
 
 ### 2.1 Image Layering Strategy and Multi-Stage Builds
 
-**What it is**: Liberty's `kernel-slim` + features pattern enables optimal Docker layer caching. The recommended layer order:
+**What it is**: Liberty's `kernel-slim` + features pattern enables optimal Docker layer caching. The layer ordering principle is based on change frequency — layers that change less frequently come first so that high-churn layers (the application) don't invalidate the low-churn layers (the runtime). The recommended layer order:
 
 ```dockerfile
-# Layer 1: Liberty runtime (changes rarely)
+# Layer 1: Liberty runtime (changes rarely — only on Liberty upgrades)
 FROM icr.io/appcafe/open-liberty:kernel-slim-java21-openj9-ubi
 
 # Layer 2: server.xml with feature declarations (changes occasionally)
 COPY --chown=1001:0 src/main/liberty/config/ /config/
 
-# Layer 3: Feature installation (changes with features)
+# Layer 3: Feature installation (changes when feature list changes)
 RUN features.sh && \
     configure.sh
 
-# Layer 4: Application artifact (changes most frequently)
+# Layer 4: Application artifact (changes most frequently — every build)
 COPY --chown=1001:0 target/myapp.war /config/apps/
 ```
 
 **Why this order**: Docker layer caching invalidates all layers after the changed layer. Putting the application WAR last means a code change only rebuilds layer 4 — the smallest and most frequent change. Feature changes rebuild layer 3+, which is less frequent. Runtime changes are rarest of all.
 
-**The `features.sh` script** in the Liberty base image calls `featureUtility installServerFeatures --acceptLicense`, which reads `server.xml` and installs all declared features from Maven Central (or a configured mirror).
+**The `features.sh` script** in the Liberty base image calls `featureUtility installServerFeatures --acceptLicense`, which reads `server.xml` and installs all declared features from Maven Central (or a configured mirror). The `configure.sh` script runs post-feature-install configuration such as keystore generation and user-defined `configure.sh` hooks.
+
+**Image tag selection strategy**: The Liberty image tag encodes Java version and JVM vendor: `kernel-slim-java21-openj9-ubi` is OpenJ9 (IBM J9) JVM, Java 21, Red Hat UBI base. For production: prefer UBI tags (RHEL-based, Red Hat supported). For development: any tag works. The `full` image tag includes all Liberty features pre-installed but is 1GB+; use only for rapid prototyping.
 
 **Multi-stage build pattern** for production images:
 ```dockerfile
@@ -63,9 +65,11 @@ COPY --chown=1001:0 src/main/liberty/config/ /config/
 RUN features.sh && configure.sh
 COPY --from=builder --chown=1001:0 target/myapp.war /config/apps/
 ```
-Multi-stage ensures the Maven toolchain is not in the production image.
+Multi-stage ensures the Maven toolchain and build artifacts are not in the production image.
 
-### 2.2 Configuration Injection via `configDropins`
+**Non-root user (UID 1001)**: Liberty base images run as UID 1001, not root. The `--chown=1001:0` on `COPY` directives sets file ownership to UID 1001 (the Liberty user) and GID 0 (the root group). GID 0 is used intentionally because OpenShift's Security Context Constraints (SCC) run containers with a random UID but always with GID 0. Granting group-read/write to GID 0 (via `chmod g+rw`) on config and log directories is the OCP-compatible permission pattern.
+
+### 2.2 Configuration Injection via `configDropins` — Kubernetes Patterns
 
 **What it is**: `configDropins/overrides/` is the canonical mechanism for Kubernetes operators and Helm charts to inject environment-specific configuration into a Liberty server without modifying the application's `server.xml`. Kubernetes ConfigMaps and Secrets are mounted to this directory. Liberty's `ServerXMLConfiguration` processes `overrides/` after `server.xml`, so injected values always win.
 
@@ -84,35 +88,53 @@ Multi-stage ensures the Maven toolchain is not in the production image.
 
 **Why this works at runtime**: Liberty's File Monitor watches `configDropins/overrides/` and re-parses when files change. If a Kubernetes Secret is rotated and the mounted file is updated, Liberty detects the change and updates the affected `Configuration` objects without server restart. See `liberty-server-configuration` CODEBASE-GUIDE §2.1 for the full re-parse mechanism.
 
-### 2.3 Health Probes Integration
+**ConfigMap vs. Secret injection**: Both ConfigMaps and Secrets mount as files in Kubernetes. Use ConfigMaps for non-sensitive config (database host/port, queue manager name). Use Secrets for credentials (database passwords, keystore passwords). Mounted Secrets are updated atomically by the Kubernetes kubelet when the Secret is changed — Liberty's file monitor detects the update within the configured polling interval.
+
+**`configDropins/defaults/` for base images**: The `defaults/` directory is processed before `server.xml`. Base images can ship defaults in `configDropins/defaults/` that applications can selectively override in their own `server.xml`. This is the pattern used by the Liberty UBI base images to provide default SSL configuration — the application's `server.xml` can then override specific SSL attributes without duplicating the full SSL config.
+
+### 2.3 Health Probes Integration — Three-Probe Architecture
 
 **What it is**: Liberty's MicroProfile Health endpoints map directly to Kubernetes probe types:
 - `/health/live` → `livenessProbe`: fails if Liberty is in a bad state (e.g., out of memory, deadlock)
 - `/health/ready` → `readinessProbe`: fails if Liberty or any application is not ready to serve traffic
 - `/health/started` → `startupProbe`: fails until Liberty has fully started and all apps are deployed
 
-**Why the three-endpoint split matters**: Kubernetes distinguishes liveness (restart the pod), readiness (remove from load balancer), and startup (wait before starting liveness/readiness checks). A Liberty server that is starting up should return `DOWN` on `/health/ready` (not yet ready) but should not fail `/health/live` (not broken — just starting). Conflating these causes premature pod restarts.
+**Why the three-endpoint split matters**: Kubernetes distinguishes liveness (restart the pod), readiness (remove from load balancer), and startup (wait before starting liveness/readiness checks). A Liberty server that is starting up should return `DOWN` on `/health/ready` (not yet ready) but should not fail `/health/live` (not broken — just starting). Conflating these causes premature pod restarts during slow application startup (e.g., CDI scanning a large EAR).
+
+**Built-in application readiness check**: Liberty registers a built-in `@Readiness` health check (`AppTracker40Impl`) that returns `DOWN` while any configured application is in `STARTING` or `FAILED` state. This means `/health/ready` automatically reflects application deployment state without any application-level health check code. Applications should implement their own `@Readiness` checks for downstream dependencies (database, message broker connectivity).
+
+**Startup probe configuration**: The `/health/started` endpoint returns `DOWN` until all configured applications have reached `STARTED` state AND all `@Startup` health checks have returned `UP`. In Kubernetes, set `startupProbe.failureThreshold` to cover the maximum expected startup time (e.g., if startup takes up to 120 seconds, set `failureThreshold=24` with `periodSeconds=5`). Once the startup probe succeeds, Kubernetes switches to liveness/readiness probes.
 
 **Key integration point**: The health endpoints are served by servlets in `io.openliberty.microprofile.health.4.0.internal`. See the `liberty-microprofile` CODEBASE-GUIDE §2.3 for the health check discovery mechanism.
 
-### 2.4 Liberty Operator (Kubernetes Operator)
+### 2.4 Liberty Operator — Reconciliation Loop and CRD Architecture
 
-**What it is**: The Liberty Operator (`open-liberty-operator` on GitHub) provides Kubernetes custom resource definitions (CRDs) — `OpenLibertyApplication`, `OpenLibertyDump`, `OpenLibertyTrace`. It manages Liberty pod lifecycle, service exposure, persistent volume claims, and horizontal pod autoscaling as Kubernetes-native resources. The operator is built on the **Operator SDK** (Go) and uses the operator-framework reconciliation loop pattern.
+**What it is**: The Liberty Operator (`open-liberty-operator` on GitHub) is a Kubernetes operator written in Go using the Operator SDK. It watches `OpenLibertyApplication` CRD instances and reconciles the cluster state (Deployments, Services, Routes, PVCs) to match the desired state described in the CRD.
+
+**Reconciliation loop design**: The operator's reconciler is triggered by changes to `OpenLibertyApplication` resources OR changes to child resources (Deployment, Service, etc.) that the operator owns. The reconciler:
+1. Reads the `OpenLibertyApplication` spec
+2. Computes the desired Deployment, Service, Route, HPA, and PVC objects
+3. Creates or patches each resource to match the desired state
+4. Updates the `OpenLibertyApplication` status with current replica counts and conditions
 
 **Key CRDs**:
-- `OpenLibertyApplication` — Equivalent to a `Deployment`/`Service`/`Route` combination, with Liberty-specific config (image streams, SSL route, storage for logs)
-- `OpenLibertyDump` — Triggers a Liberty server dump via the JMX REST API
-- `OpenLibertyTrace` — Toggles Liberty trace specification on a running pod via JMX REST
+- `OpenLibertyApplication` — Equivalent to a `Deployment`/`Service`/`Route` combination, with Liberty-specific config (image streams, SSL route, storage for logs, session affinity, service binding). The spec includes `applicationImage`, `replicas`, `service.port`, `expose.route`, `storage.logs`, and `monitoring` fields.
+- `OpenLibertyDump` — Triggers a Liberty server dump via the JMX REST API. The operator connects to the target pod's JMX REST endpoint and invokes `LibertyDump.dumpServer()`. Dump contents are available in the pod's output directory.
+- `OpenLibertyTrace` — Toggles Liberty trace specification on a running pod via the JMX `LoggingMBean.setTraceSpecification()` operation. The trace spec change is ephemeral — it does not persist after pod restart.
 
-**Integration with Liberty internals**: The operator uses `restConnector-2.0` (JMX over REST) to trigger dumps and trace changes. This requires `<feature>restConnector-2.0</feature>` and appropriate credentials in the deployment.
+**Integration with Liberty internals**: The operator uses `restConnector-2.0` (JMX over REST) for dump and trace operations. This requires `<feature>restConnector-2.0</feature>` and appropriate credentials in the deployment. The operator retrieves credentials from a Kubernetes Secret referenced in the `OpenLibertyApplication` spec.
+
+**Service binding**: The operator supports the Service Binding specification — it can inject `ServiceBinding` resources (database credentials, message broker connection info) directly into Liberty's `configDropins/overrides/` directory as XML fragments. This eliminates the need to manually map Secret keys to environment variables.
 
 ### 2.5 OCP / OpenShift Integration Patterns
 
-**Route and certificate management**: The operator automatically creates an `Route` with edge TLS termination when `expose.route.termination="edge"` is set on `OpenLibertyApplication`. The OpenShift certificate service provisions the TLS cert signed by the cluster CA, making in-cluster service communication trusted without manual cert distribution.
+**Route and certificate management**: The operator automatically creates an `Route` with edge TLS termination when `expose.route.termination="edge"` is set on `OpenLibertyApplication`. The OpenShift certificate service provisions the TLS cert signed by the cluster CA, making in-cluster service communication trusted without manual cert distribution. The `re-encrypt` termination mode terminates TLS at the router and re-encrypts to the Liberty pod using Liberty's own certificate.
 
 **Service accounts and RBAC**: The Liberty pod's service account token can be used for OpenShift OAuth authentication via `OkdServiceLoginImpl` (see `liberty-security-sso` CODEBASE-GUIDE §2.10). The pod's projected service account token is presented as a bearer token to the application's endpoint, which the `socialLogin` feature validates against the cluster's OAuth server.
 
 **JWKS and key management in OCP**: When Liberty runs as an OIDC provider in OCP, the JWKS endpoint (`/oidc/endpoint/.../jwk`) must be reachable by relying parties within the cluster. Because OCP routes are HTTPS and the cluster CA is trusted, in-cluster JWKS fetches work without additional SSL configuration — as long as Liberty's route cert is issued by the cluster CA.
+
+**InstantOn (checkpoint/restore)**: Liberty supports CRaC-based InstantOn via OpenJ9's JVM checkpoint. The container image is built with an embedded JVM snapshot (taken after Liberty starts and reaches "running" state). Container startup from a checkpoint image is typically under 1 second. InstantOn images require specific Linux capabilities (`CHECKPOINT_RESTORE`, `SYS_PTRACE`) to use `criu` for process restoration. Kubernetes PodSecurityAdmission must allow these capabilities. See `WLP-InstantOn-Enabled: true` in feature manifests for which features support checkpoint.
 
 ---
 
@@ -143,7 +165,7 @@ Multi-stage ensures the Maven toolchain is not in the production image.
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `BootstrapConfig` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/internal/BootstrapConfig.java` | Container path vars: `WLP_OUTPUT_DIR`, `WLP_USER_DIR`, `LOG_DIR` (all env-configurable) |
+| `BootstrapConfig` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/BootstrapConfig.java` | Container path vars: `WLP_OUTPUT_DIR`, `WLP_USER_DIR`, `LOG_DIR` (all env-configurable) |
 | `ServerXMLConfiguration` | `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/ServerXMLConfiguration.java` | Processes `configDropins/` directories; `overrides/` applied after `server.xml` |
 | `VariableEvaluator` | `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/VariableEvaluator.java` | `${env.VAR}` resolution from container environment |
 | `HealthCheck40ServiceImpl` | `io.openliberty.microprofile.health.4.0.internal/src/.../HealthCheck40ServiceImpl.java` | Health probe aggregation (see `liberty-microprofile` guide) |

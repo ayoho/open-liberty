@@ -283,4 +283,4 @@ A: `noship` features are internal development or test features that are present 
 
 ---
 
-*Guide last verified against codebase: Open Liberty `removeModelFromAiGuidance` branch. Verify paths with commands in §7.*
+*Guide last verified against codebase: Open Liberty `3bd33ac9e6e` commit. Verify paths with commands in §7.*

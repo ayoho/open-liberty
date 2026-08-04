@@ -335,21 +335,23 @@ CWWKF0033E: The singleton features X and Y cannot be loaded at the same time.
 
 ## 7. Feature Version Comparison
 
-### Java EE 8 (`javaee-8.0`) vs Jakarta EE 10 (`jakartaee-10.0`)
+### Java EE 8 (`javaee-8.0`) vs Jakarta EE 10 (`jakartaee-10.0`) vs Jakarta EE 11 (`jakartaee-11.0`)
 
-| Dimension | Java EE 8 | Jakarta EE 10 |
-|---|---|---|
-| Package namespace | `javax.*` | `jakarta.*` |
-| Servlet | 4.0 | 6.0 |
-| CDI | 2.0 | 4.0 |
-| JAX-RS / RESTful WS | 2.1 | 3.1 |
-| JPA / Persistence | 2.2 | 3.1 |
-| EJB | 3.2 | 4.0 |
-| Security | 1.0 | 3.0 |
-| Min Java | Java 8 | Java 11 |
-| Liberty feature | `javaee-8.0` | `jakartaee-10.0` |
+| Dimension | Java EE 8 | Jakarta EE 10 | Jakarta EE 11 |
+|---|---|---|---|
+| Package namespace | `javax.*` | `jakarta.*` | `jakarta.*` |
+| Servlet | 4.0 | 6.0 | 6.1 |
+| CDI | 2.0 | 4.0 | 4.1 |
+| JAX-RS / RESTful WS | 2.1 | 3.1 | 3.1 (unchanged) |
+| JPA / Persistence | 2.2 | 3.1 | 3.2 |
+| EJB | 3.2 | 4.0 | 4.0 (unchanged) |
+| Faces / JSF | 2.3 | 4.0 | 4.1 |
+| Expression Language | 3.0 | 5.0 | 6.0 |
+| Security | 1.0 | 3.0 | 4.0 |
+| Min Java | Java 8 | Java 11 | **Java 17** |
+| Liberty feature | `javaee-8.0` | `jakartaee-10.0` | `jakartaee-11.0` |
 
-> **Migration note:** Migrating from Java EE 8 → Jakarta EE 9+ requires replacing all `javax.*` imports with `jakarta.*`. Third-party libraries must also be Jakarta-compatible.
+> **Migration note:** Migrating from Java EE 8 → Jakarta EE 9+ requires replacing all `javax.*` imports with `jakarta.*`. Third-party libraries must also be Jakarta-compatible. Jakarta EE 11 additionally requires Java 17+ and drops `SecurityManager` support.
 
 ### appSecurity versions
 
@@ -364,6 +366,8 @@ CWWKF0033E: The singleton features X and Y cannot be loaded at the same time.
 
 | `microProfile` version | Key MP specs included |
 |---|---|
+| `microProfile-7.1` | Config 3.1, Health 4.0, FT 4.0, OpenAPI 4.0, RestClient 4.0, Metrics 5.1, Telemetry 2.0, JWT 2.1 — extends Jakarta EE 10 |
+| `microProfile-7.0` | Config 3.1, Health 4.0, FT 4.0, OpenAPI 4.0, RestClient 4.0, Metrics 5.1, Telemetry 2.0, JWT 2.1 — extends Jakarta EE 10 |
 | `microProfile-6.1` | Config 3.1, Health 4.0, FT 4.0, OpenAPI 3.1, RestClient 3.0, Metrics 5.1, Telemetry 1.1, JWT 2.1 |
 | `microProfile-5.0` | Config 3.0, Health 3.1, FT 4.0, OpenAPI 3.0, RestClient 3.0, Metrics 4.0, JWT 2.0 |
 | `microProfile-4.1` | Config 2.0, Health 3.1, FT 3.0, OpenAPI 2.0, RestClient 2.0, Metrics 3.0, JWT 1.2 |

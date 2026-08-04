@@ -316,6 +316,23 @@ Handles:
 | `jakartaee-11.0` | Jakarta EE 11 (`jakarta.*`) | Full EE 11 profile |
 | `webProfile-8.0` | Web Profile EE 8 | Web subset |
 | `webProfile-10.0` | Web Profile EE 10 | Web subset |
+| `webProfile-11.0` | Web Profile EE 11 | Web subset; requires Java 17+ |
+
+### `jakartaee-11.0` Feature Composition
+
+`jakartaee-11.0` requires **Java 17+** (Java 21 recommended). It enables the following sub-features (among others):
+
+- `cdi-4.1` — CDI 4.1 (Build-compatible extensions now supported)
+- `servlet-6.1` — Servlet 6.1
+- `faces-4.1` — Jakarta Faces 4.1 (Apache MyFaces implementation)
+- `expressionLanguage-6.0` — Expression Language 6.0
+- `batch-2.1` — Jakarta Batch 2.1
+- `connectors-2.1` — JCA Connectors 2.1
+- `messaging-3.1` / `messagingClient-3.0` / `messagingServer-3.0` / `messagingSecurity-3.0` — Messaging 3.1 sub-features
+- `mdb-4.0` — MDB 4.0
+- `mail-2.1` — Jakarta Mail 2.1
+- `appAuthorization-3.0` — Jakarta Authorization 3.0
+- `jdbc-4.2`, `jdbc-4.3` — JDBC support
 
 ### Migration Steps: Java EE 8 to Jakarta EE 10
 
@@ -325,6 +342,15 @@ Handles:
 4. Replace `javax.` imports in source code with `jakarta.`
 5. Test with `jakartaee-10.0` or individual features
 6. Update third-party libraries to Jakarta EE 10 compatible versions
+
+### Migration Steps: Jakarta EE 10 to Jakarta EE 11
+
+1. Upgrade Java SE to **17 or 21** (minimum Java 17 required)
+2. Change the `platform` attribute or umbrella feature: `jakartaee-10.0` → `jakartaee-11.0`
+3. Review CDI changes: CDI 4.1 adds **build-compatible extensions** (`BuildCompatibleExtension`) as an alternative to portable extensions — no changes required unless you use CDI portable extension SPIs
+4. Review Faces changes: `faces-4.1` continues to use Apache MyFaces; API is `jakarta.faces.*` (no namespace change)
+5. Update third-party libraries to Jakarta EE 11 compatible versions
+6. Note: Jakarta EE 11 drops support for `java.lang.SecurityManager` entirely (it was deprecated since Java 17)
 
 ---
 
@@ -344,6 +370,25 @@ Handles:
 | Context Propagation | 1.2 | 1.3 | `jakarta` namespace |
 
 **Key change:** All MP 5.0 specs use `jakarta.*` namespace — requires source updates if migrating from MP 4.x (`javax.*`).
+
+### MicroProfile 6.x → 7.x (continued)
+
+Liberty also supports **MicroProfile 7.1**:
+- `microProfile-7.1` extends Jakarta EE 10.0 (same base as 7.0)
+- Minor incremental improvements across the included specs
+
+**Feature mapping (complete):**
+
+| Platform | Liberty Feature |
+|---|---|
+| MicroProfile 4.1 | `microProfile-4.1` |
+| MicroProfile 5.0 | `microProfile-5.0` |
+| MicroProfile 6.0 | `microProfile-6.0` |
+| MicroProfile 6.1 | `microProfile-6.1` |
+| MicroProfile 7.0 | `microProfile-7.0` |
+| MicroProfile 7.1 | `microProfile-7.1` |
+
+---
 
 ### MicroProfile 5.0 → 6.0 / 6.1
 
@@ -366,16 +411,6 @@ Handles:
 | Config | 3.1 | 3.1 | No change |
 | OpenAPI | 3.1 | 4.0 | Enhanced schema support |
 | REST Client | 3.0 | 4.0 | Aligned with Jakarta REST 3.1 |
-
-**Feature mapping:**
-
-| Platform | Liberty Feature |
-|---|---|
-| MicroProfile 4.1 | `microProfile-4.1` |
-| MicroProfile 5.0 | `microProfile-5.0` |
-| MicroProfile 6.0 | `microProfile-6.0` |
-| MicroProfile 6.1 | `microProfile-6.1` |
-| MicroProfile 7.0 | `microProfile-7.0` |
 
 ---
 

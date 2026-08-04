@@ -36,19 +36,21 @@ This design solves several problems: it avoids monolithic deployment code, allow
 
 **Why this design**: A `ManagedServiceFactory` (as opposed to `ManagedService`) handles *multiple instances* of the same PID — one per `<application id="...">` element in `server.xml`. This is how Liberty supports deploying multiple applications from a single server.xml without any enumeration logic.
 
-**Key entry point**: `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/ApplicationConfigurator.java`  
+**PID key format**: Factory instance PIDs take the form `<basePID>~<instanceId>`, e.g. `com.ibm.ws.webApplication~myApp`. Config Admin creates one `Configuration` object per unique `~id` suffix. `ApplicationConfigurator` maps each such PID to a separate `ApplicationStateMachineImpl`, keyed by the `id` portion. This means adding a second `<webApplication id="myApp2"/>` to `server.xml` triggers a second `updated()` call with a new PID, creating a new state machine — with zero change to the framework code.
+
+**Key entry point**: `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/ApplicationConfigurator.java`
 See `updated(String pid, Dictionary<String, ?> properties)` for the path from config delivery to state machine creation.
 
 ### 2.2 Application State Machine
 
-**What it is**: Each deployed application has an `ApplicationStateMachineImpl` that governs its lifecycle. The state machine transitions through defined states in response to actions. State transitions execute `Action` objects (e.g., `StartAction`, `StopAction`, `DownloadFileAction`) asynchronously.
+**What it is**: Each deployed application has an `ApplicationStateMachineImpl` that governs its lifecycle. The state machine transitions through defined states in response to actions. State transitions execute `Action` objects (e.g., `StartAction`, `StopAction`, `DownloadFileAction`) asynchronously on a shared executor thread pool.
 
 **States**:
 ```
 INITIAL → STARTING → STARTED
-                    → FAILED
-         STOPPING   → STOPPED
-                    → REMOVED
+                     → FAILED
+          STOPPING   → STOPPED
+                     → REMOVED
 ```
 
 **Actions** that drive transitions:
@@ -60,10 +62,13 @@ INITIAL → STARTING → STARTED
 
 **Why a state machine**: Application lifecycle involves asynchronous operations (file download, archive expansion, CDI scanning). A state machine provides atomicity guarantees — no matter what order external events arrive (config update, file change, JMX stop), the app always ends up in a consistent state. The `ApplicationStateMachineImpl` uses a `ConcurrentLinkedQueue` of pending actions and processes them serially.
 
+**`DownloadFileAction` — the location resolution step**: Before any deployment can happen, the application's `location` attribute must be resolved to an actual file path. `DownloadFileAction` handles this: it calls `WsLocationAdmin` to resolve relative paths (relative to `${server.config.dir}/apps/` by default), and supports remote URLs (http/https) for lazy download. If the file does not exist, the state machine stays in `STARTING` state and periodically retries — this is how Liberty handles dropins that haven't arrived yet.
+
 **Key entry points**:
 - `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/statemachine/ApplicationStateMachineImpl.java` — see the `InternalState` enum and `run()` for the action dispatch loop
 - `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/statemachine/StartAction.java` — action that invokes `ApplicationHandler.install()`
 - `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/statemachine/StopAction.java` — action that invokes `ApplicationHandler.uninstall()`
+- `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/statemachine/DownloadFileAction.java` — location resolution; `WsLocationAdmin` path expansion and remote fetch
 
 ### 2.3 ApplicationHandler — Pluggable App Type Pattern
 
@@ -71,11 +76,56 @@ INITIAL → STARTING → STARTED
 
 **Why pluggable**: The app manager framework knows nothing about WAR, EAR, Spring Boot, or RAR file formats. Type-specific handlers are registered as DS components. When a new application type feature is loaded (e.g., `springBoot-3.0`), its handler registers automatically; when removed, it deregisters. The framework selects the right handler by matching the `ApplicationTypeSupported` service property on each handler against the type declared in the app config.
 
+**Handler selection precedence**: `ApplicationConfigurator` resolves the handler using the `type` attribute on the `<application>` element (e.g., `type="war"`). If `type` is not specified, it is inferred from the archive's file extension (`.war` → WAR handler; `.ear` → EAR handler; `.jar` → Spring Boot handler if `springBoot` feature is present). The handler matching uses OSGi filter expressions on the `ApplicationTypeSupported` service property.
+
 **Key entry points**:
 - `com.ibm.ws.app.manager/src/com/ibm/wsspi/application/handler/ApplicationHandler.java` — SPI interface; `install()`, `uninstall()`, `setUpApplicationMonitoring()`
 - `com.ibm.ws.app.manager/src/com/ibm/wsspi/application/handler/ApplicationInformation.java` — carries the app's config, archive container, and type-specific data object
 - `com.ibm.ws.app.manager.war/src/com/ibm/ws/app/manager/war/internal/WARApplicationHandlerImpl.java` — WAR handler; see `install()` for the WAR-specific deployment path
 - `com.ibm.ws.app.manager.war/src/com/ibm/ws/app/manager/ear/internal/EARApplicationHandlerImpl.java` — EAR handler; coordinates multiple module deployments
+
+### 2.4 Classloading Architecture — Gateway Between OSGi and Applications
+
+**What it is**: Application classloaders exist outside the OSGi bundle classloader graph. An application's classes are loaded by a Liberty `AppClassLoader` that delegates to its parent (usually the JVM bootstrap classloader or a shared library classloader) and can also "reach back" into the OSGi bundle space for Liberty API packages. The gateway between OSGi space and application space is managed by `GatewayConfiguration`.
+
+**Classloader hierarchy**:
+```
+Bootstrap ClassLoader (JDK)
+  └─ JDK Extension ClassLoader
+       └─ Liberty runtime (OSGi Equinox)
+            ├─ Feature bundle classloaders (isolated OSGi bundles)
+            │    └─ API gateway: packages listed in IBM-API-Package only
+            └─ Application ClassLoader (per WAR or EAR root)
+                 ├─ apiTypeVisibility governs which IBM-API-Package types are visible
+                 └─ Module ClassLoaders (per EAR module — web, EJB, client)
+                      └─ share EAR parent; see each other via EAR classloader
+```
+
+**`apiTypeVisibility`** controls which Liberty package types are accessible from application code. Default is `api,ibm-api,spec,third-party`. Adding `stable` exposes stable-but-not-spec packages. Adding `internal` exposes Liberty internals — strongly discouraged as it breaks zero-migration guarantees.
+
+**`parentType`** controls delegation order:
+- `PARENT_FIRST` (default): delegate to parent classloader first, then search the application archive. Standard Java parent-first delegation.
+- `PARENT_LAST`: search the application archive first, then delegate to parent. Used when the application must override a library version that Liberty provides — a common pattern with older applications that bundle their own copy of a spec API JAR.
+
+**Shared libraries**: `<library id="myLib">` creates a classloader shared across all applications that reference it via `<classloader commonLibraryRef="myLib"/>`. The shared library classloader is created once and reused, saving memory. When the `<library>` config changes (e.g., a JAR is updated), the `LibraryChangeListener` SPI notifies applications that hold a reference, triggering `ApplicationRecycleCoordinator` to recycle affected apps.
+
+**Key entry points**:
+- `com.ibm.ws.classloading/src/com/ibm/wsspi/classloading/ClassLoadingService.java` — creates application classloaders; `createTopLevelClassLoader()` is the entry point for each app
+- `com.ibm.ws.classloading/src/com/ibm/wsspi/classloading/ClassLoaderConfiguration.java` — builder for classloader settings; `setParentType()`, `setApiTypeVisibility()`, `setProtectionDomain()`
+- `com.ibm.ws.classloading/src/com/ibm/wsspi/classloading/GatewayConfiguration.java` — controls which packages cross the OSGi→app classloader boundary
+
+### 2.5 Dropins and Application Monitoring
+
+**What it is**: The `dropins/` directory provides a zero-config deployment mechanism: drop a WAR/EAR/JAR file into `${server.config.dir}/dropins/` and Liberty deploys it automatically. `DropinMonitor` implements this by synthesizing Config Admin `Configuration` objects from filesystem events — making dropins deployments indistinguishable from `server.xml`-declared deployments from the state machine's perspective.
+
+**`DropinMonitor` mechanics**: `DropinMonitor` is a `FileMonitor` that watches the `dropins/` directory for create/modify/delete events. On file creation, it calls `ApplicationConfigurator` with a synthesized `<webApplication>` configuration. On deletion, it calls `ApplicationConfigurator.deleted()`. The application then flows through the normal state machine lifecycle. This means all the same timeout, classloading, and lifecycle behavior applies equally to dropins and server.xml-declared apps.
+
+**Application monitoring** (`<applicationMonitor>`): For deployed apps, `ApplicationMonitor` watches the app archive for changes. When a JAR inside the expanded WAR changes, it triggers `ApplicationHandler.setUpApplicationMonitoring()` and then schedules a `RESTART` action via the state machine. The `updateTrigger` attribute on `<applicationMonitor>` controls the trigger: `polled` (file system polling, default), `mbean` (explicit JMX trigger), or `disabled`.
+
+**Key entry points**:
+- `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/monitor/DropinMonitor.java` — watches `dropins/`; synthesizes Config Admin entries on file events
+- `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/monitor/ApplicationMonitor.java` — watches individual app archives; triggers reload on change
+- `com.ibm.ws.app.manager/src/com/ibm/ws/app/manager/internal/monitor/AppMonitorConfigurator.java` — DS component for `<applicationMonitor>` config element
 
 ---
 

@@ -33,6 +33,12 @@ MicroProfile features integrate with — but do not depend on — the Jakarta EE
 
 **What it is**: Every MicroProfile sub-spec that touches application classes uses a **CDI Portable Extension** as its primary integration point. The extension is a CDI SPI (`javax.enterprise.inject.spi.Extension`) registered via `META-INF/services/javax.enterprise.inject.spi.Extension`. During CDI bean discovery, the extension observes `ProcessAnnotatedType` events to find application classes annotated with MicroProfile annotations (`@Retry`, `@Timeout`, `@HealthCheck`, `@ConfigProperty`, etc.) and registers them for appropriate interception or injection.
 
+**CDI lifecycle integration points used by MicroProfile**:
+- `ProcessAnnotatedType<T>`: Fault Tolerance observes this to find FT-annotated classes and add interceptor bindings programmatically, so application code does not need `@Interceptors` annotations.
+- `ProcessInjectionPoint`: MP Config observes this to find `@ConfigProperty` injection points and determine required types, allowing the converter pipeline to be resolved at startup rather than at first injection.
+- `AfterBeanDiscovery`: MP Config uses this to register its `@ConfigProperty` producer beans (one per type found in step above). MP Metrics uses this to register `MetricRegistry` producers.
+- `AfterDeploymentValidation`: FT checks that all `@Fallback` methods have compatible signatures; MP Config validates that mandatory properties exist with no default.
+
 **Why CDI**: Using CDI ensures MicroProfile annotations work on any CDI-managed bean — servlets, EJBs, JAX-RS resources, and CDI beans — without the application needing to extend framework classes. CDI also manages bean scoping and lifecycle, which MicroProfile features rely on (e.g., a `@RequestScoped` health check is instantiated per probe).
 
 **Key entry point for FT**:
@@ -42,7 +48,13 @@ MicroProfile features integrate with — but do not depend on — the Jakarta EE
 
 **What it is**: MP Config provides `@ConfigProperty`-injected configuration values to CDI beans. The implementation resolves values from an ordered chain of `ConfigSource` implementations (higher ordinal wins). Built-in sources: `SystemPropertyConfigSource` (ordinal 400), environment variables (ordinal 300), `microprofile-config.properties` in the application archive (ordinal 100). Additional sources can be registered as CDI beans or via `ConfigSourceProvider`. The value is type-converted by a `Converter` chain.
 
-**Why ordered chain**: Operators need to override application defaults without modifying packaged artifacts. The priority order (system props > env vars > properties file) mirrors the 12-factor app model and allows Kubernetes-style override via environment variables or JVM system properties.
+**`@ConfigProperty` injection mechanics**: At CDI bean creation, the produced value is resolved by walking the `SortedSourcesImpl` — a snapshot of all `ConfigSource`s sorted by ordinal descending. The first source returning a non-null value wins. The resolved string is then passed to `ConversionManager`, which selects a `Converter<T>` by the injection point's type token. For `Optional<T>` types, a missing key returns `Optional.empty()` rather than a `DeploymentException`. For `Provider<T>` types, the lookup is deferred to each `Provider.get()` call — enabling dynamic re-read without CDI bean re-creation.
+
+**Liberty server variables as a ConfigSource**: `io.openliberty.microprofile.config.internal.serverxml` provides a `ConfigSource` at ordinal 500 — higher than system properties — that reads Liberty's `VariableRegistry`. This means `<variable name="my.prop" value="x"/>` in `server.xml` or `configDropins/overrides/` takes precedence over everything the application can set. This is intentional: operators in containerized environments can inject MP Config values via server.xml `configDropins/overrides/` without modifying the application image.
+
+**ConfigSource discovery**: Liberty uses a per-application-classloader `Config` instance (managed by `ConfigProviderResolverImpl`). When a new application is deployed, `ConfigProviderResolverImpl.getConfig(ClassLoader)` creates a new `Config` that scans the application's classloader for `META-INF/services/org.eclipse.microprofile.config.spi.ConfigSource` files plus CDI-registered beans. This ensures application A's `ConfigSource` doesn't contaminate application B's `Config`.
+
+**Why ordered chain**: Operators need to override application defaults without modifying packaged artifacts. The priority order (server vars > system props > env vars > properties file) mirrors the 12-factor app model and allows Kubernetes-style override via environment variables or JVM system properties.
 
 **Key entry points**:
 - `com.ibm.ws.microprofile.config.1.1/src/com/ibm/ws/microprofile/config/impl/ConfigImpl.java` — Core `Config` implementation; `getValue()` iterates `SortedSourcesImpl` in priority order.
@@ -54,6 +66,12 @@ MicroProfile features integrate with — but do not depend on — the Jakarta EE
 
 **What it is**: MP Health exposes three HTTP endpoints (`/health`, `/health/live`, `/health/ready`) that aggregate responses from all `HealthCheck`-implementing CDI beans found in the application. Each probe endpoint invokes all registered checks and returns a combined JSON response. Liberty registers the endpoints as servlets.
 
+**Health check discovery and invocation**: `HealthCheck40ServiceImpl` is a DS component that holds a `CDI<Object>` reference. At probe request time (not at startup), it calls `CDI.current().select(HealthCheck.class)` with the appropriate qualifier (`@Liveness`, `@Readiness`, or `@Startup`) to discover all matching beans. It invokes each `call()` method sequentially, collects `HealthCheckResponse` objects, and aggregates: if any check returns `DOWN`, the aggregate is `DOWN`. The HTTP status code is 200 for `UP` and 503 for `DOWN`.
+
+**Startup probe subtlety**: MP Health 3.0 added `@Startup` for Kubernetes startup probes — these signal whether the application has completed its initialization. Liberty implements this by tracking whether the application manager has finished deploying all modules. A `@Startup` bean can `return HealthCheckResponse.down("waiting")` during hot deployment until all dependent services are available.
+
+**Why a servlet per probe**: Kubernetes liveness, readiness, and startup probes use different HTTP paths and have different failure semantics. A single `/health` endpoint cannot serve all three — Kubernetes must be able to independently suppress traffic (readiness), restart the pod (liveness), or delay startup (startup). Using separate servlet paths lets Kubernetes target the correct behavior.
+
 **Key entry points**:
 - `io.openliberty.microprofile.health.4.0.internal/src/io/openliberty/microprofile/health40/internal/HealthCheck40ServiceImpl.java` — Discovers all `HealthCheck` CDI beans; aggregates `UP`/`DOWN` responses; DS component activated when the feature is present.
 - `io.openliberty.microprofile.health.4.0.internal/src/io/openliberty/microprofile/health40/internal/servlet/HealthCheckServlet.java` — Servlet serving `/health`; delegates to `HealthCheck40ServiceImpl`.
@@ -61,6 +79,10 @@ MicroProfile features integrate with — but do not depend on — the Jakarta EE
 ### 2.4 MP Metrics — SmallRye Delegation
 
 **What it is**: Liberty's MP Metrics 5.x implementation delegates to the SmallRye Metrics library. Liberty provides adapter classes (`SRMetricRegistryAdapter`, `SRSharedMetricRegistriesAdapter`) that bridge the MicroProfile Metrics API (`MetricRegistry`) to SmallRye's internal registry. This means application code using `@Counted`, `@Timed`, `@Gauge` gets SmallRye implementations at runtime, exposed as Prometheus-format metrics at `/metrics`.
+
+**Prometheus output and tag model**: SmallRye serializes metrics in Prometheus text format (`text/plain; version=0.0.4`) and OpenMetrics format. Metric names are mapped from MP Metrics notation (`vendor.heap.used`) to Prometheus notation (`vendor_heap_used`). Tags (`@Tag`) become Prometheus label key=value pairs on the metric line. Histogram metrics generate `_count`, `_sum`, and `_bucket` lines. `@Gauge` values are read on every scrape — the gauge method is invoked synchronously during the `/metrics` request.
+
+**Registry scopes**: MP Metrics defines three registry scopes: `application` (per-application metrics, reset on undeploy), `vendor` (Liberty-internal metrics: thread pool, JVM heap, GC), and `base` (required by the MP Metrics spec: JVM stats). `SRSharedMetricRegistriesAdapter` manages these three scopes as separate `MetricRegistry` instances. When an application is undeployed, its `application`-scoped registry is cleared; `vendor` and `base` registries persist across deployments.
 
 **Why delegate to SmallRye**: SmallRye implements the MicroProfile specification TCK and is the canonical open-source implementation. Liberty wraps it rather than reimplementing, reducing maintenance cost while staying spec-compliant.
 
@@ -72,12 +94,30 @@ MicroProfile features integrate with — but do not depend on — the Jakarta EE
 
 **What it is**: Each FT policy (`@Retry`, `@Timeout`, `@Bulkhead`, `@CircuitBreaker`, `@Fallback`) is implemented as a separate interceptor strategy. The CDI extension registers a single `FaultToleranceCDI20Interceptor` that delegates to a composed execution pipeline built from the applicable policies. Policy implementations are in `com.ibm.ws.microprofile.faulttolerance.spi` (interfaces) and `com.ibm.ws.microprofile.faulttolerance` (core implementations).
 
+**Policy composition order**: When multiple FT annotations appear on one method, they compose in a specific order that matches the spec: `@Bulkhead` → `@CircuitBreaker` → `@Retry` → `@Timeout` → `@Fallback`. The outer-to-inner ordering is critical: `@Retry` wraps `@Timeout`, so each retry attempt gets its own timeout budget. `@CircuitBreaker` is outside `@Retry`, so a circuit open failure does not trigger a retry. Getting this order wrong would change observable behaviour; it is encoded in `AbstractExecutorBuilderImpl.build()`.
+
+**Circuit breaker state machine**: `CircuitBreakerPolicyImpl` maintains a sliding window of recent outcomes (success/failure/timeout). When the failure rate exceeds `failureRatio` over the `requestVolumeThreshold`, the circuit opens. After `delay`, it transitions to HALF-OPEN: one trial request is allowed. If it succeeds, the circuit closes; if it fails, it opens again. The window is a ring buffer to avoid allocations on every call. State transitions are protected by a `ReentrantLock` to prevent races between concurrent method calls.
+
+**Bulkhead thread model**: `@Bulkhead` in asynchronous mode (`@Asynchronous @Bulkhead`) uses a dedicated `ExecutorService` per method — not Liberty's main executor. Each async bulkhead has `value` concurrent threads and `waitingTaskQueue` queue capacity. When the queue is full, `BulkheadException` is thrown immediately without waiting. Synchronous `@Bulkhead` uses a semaphore instead of a thread pool — limiting concurrent entry but on caller threads. Choosing semaphore vs. thread pool is the key decision when using bulkhead.
+
 **Why separate policy SPI**: Allows the metrics integration bundle (`com.ibm.ws.microprofile.faulttolerance.metrics`) to wrap policy implementations with metric recording without modifying the core policy logic. Adding MicroProfile Telemetry tracing works the same way.
 
 **Key entry points**:
 - `com.ibm.ws.microprofile.faulttolerance.spi/src/com/ibm/ws/microprofile/faulttolerance/spi/CircuitBreakerPolicy.java` — SPI interface; `com.ibm.ws.microprofile.faulttolerance.impl.CircuitBreakerPolicyImpl` provides the state machine.
 - `com.ibm.ws.microprofile.faulttolerance/src/com/ibm/ws/microprofile/faulttolerance/impl/policy/CircuitBreakerPolicyImpl.java` — Circuit breaker state machine: CLOSED → OPEN → HALF-OPEN.
 - `com.ibm.ws.microprofile.faulttolerance/src/com/ibm/ws/microprofile/faulttolerance/impl/AbstractExecutorBuilderImpl.java` — Builds the composed execution pipeline from active policies per method.
+
+### 2.6 MP Telemetry — OpenTelemetry Bridge
+
+**What it is**: MP Telemetry (`mpTelemetry-1.0`, `mpTelemetry-2.0`) integrates OpenTelemetry SDK into Liberty applications. Liberty wraps the OpenTelemetry Java SDK (`io.opentelemetry.*`) and configures it as a CDI-available bean via `io.openliberty.microprofile.telemetry.2.1.internal`. Applications inject `Tracer`, `Meter`, or `Logger` via CDI. Liberty auto-instruments JAX-RS inbound requests and outbound REST Client calls with spans.
+
+**Tracer propagation across service calls**: When a JAX-RS resource method is invoked, the MP Telemetry `ContainerFilter` extracts the `traceparent` / `tracestate` headers (W3C Trace Context format) from the incoming request and calls `OpenTelemetry.getPropagators().getTextMapPropagator().extract()` to reconstruct the parent span context. The span created for the request is set as the active span on the thread's `Context`. Downstream REST Client calls inject the `traceparent` header on the outgoing request via `ClientFilter`. This creates a distributed trace across microservices without application code changes.
+
+**OTLP export**: By default, Liberty exports spans to an OTLP endpoint. Configured via MP Config properties: `otel.exporter.otlp.endpoint` (default `http://localhost:4317`), `otel.service.name` (required), `otel.sdk.disabled` (default `false`). The exporter runs on a background thread with a bounded queue; if the OTLP endpoint is unavailable, spans are dropped silently (not logged at ERROR by default) — which can be surprising during initial setup.
+
+**Key entry points**:
+- `io.openliberty.microprofile.telemetry.2.1.internal/src/io/openliberty/microprofile/telemetry/internal/...` — OpenTelemetry SDK configuration and CDI producer registration.
+- `io.openliberty.microprofile.telemetry.2.1.internal/src/.../jaxrs/TelemetryContainerFilter.java` — JAX-RS inbound filter; span creation and context extraction.
 
 ---
 

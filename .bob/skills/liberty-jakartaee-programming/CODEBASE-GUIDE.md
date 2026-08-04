@@ -15,7 +15,7 @@ Liberty's Jakarta EE programming model domain solves the problem of **how to run
 | Container | Primary Bundles |
 |-----------|----------------|
 | CDI | `com.ibm.ws.cdi.weld` (Weld integration), `io.openliberty.cdi.4.0.thirdparty` (CDI 4.0 API delegation) |
-| EJB | `com.ibm.ws.ejbcontainer.core`, `com.ibm.ws.ejbcontainer.session`, `com.ibm.ws.ejbcontainer.mdb.core` |
+| EJB | `com.ibm.ws.ejbcontainer`, `com.ibm.ws.ejbcontainer.core`, `com.ibm.ws.ejbcontainer.mdb` |
 | JPA | `com.ibm.ws.jpa.container.v32`, `com.ibm.ws.jpa.container.eclipselink` |
 | JTA | `com.ibm.ws.transaction` (core), `com.ibm.ws.transaction.management` |
 | Servlets | `com.ibm.ws.webcontainer` (see `liberty-web-container` guide) |
@@ -24,11 +24,15 @@ Liberty's Jakarta EE programming model domain solves the problem of **how to run
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 CDI — Weld Integration via SPI
+### 2.1 CDI — Weld Integration via SPI and Classloader Bridging
 
 **What it is**: Liberty delegates CDI implementation to **Weld** (the reference implementation), integrated through a Liberty-specific `WeldInitialization` DS component. Liberty provides Weld with a custom `WeldDeployment` that bridges Weld's notion of deployment units to Liberty's classloading model and DS service registry. CDI portable extensions are discovered via `META-INF/services/javax.enterprise.inject.spi.Extension` in each archive.
 
 **The Weld bootstrap sequence**: (1) `WeldInitialization.activate()` creates a `WeldContainer` per application module; (2) `BDAFactory` creates `BeanDeploymentArchive` instances, each backed by a Liberty `WsClassLoader`; (3) Weld performs CDI bean discovery (scanning archives for bean-defining annotations or `beans.xml`); (4) portable extensions observe `ProcessAnnotatedType`, `ProcessBean`, `AfterDeploymentValidation` events; (5) `CDIExtensionMetadata` implementations from Liberty feature bundles are also invoked to register built-in extensions (e.g., MicroProfile Fault Tolerance, MP Metrics).
+
+**Weld classloader bridging**: The critical integration challenge is that Weld needs to load bean classes, but in Liberty those classes live in application classloaders isolated from the OSGi bundle classloader where Weld itself lives. `BeanDeploymentArchiveImpl` bridges this by wrapping each application module's `WsClassLoader` as a Weld `ClassLoader` context. Weld uses this to load bean classes, discover annotations, and generate proxies. Proxy classes are generated into the application classloader's domain (not Weld's), so they remain accessible to application code.
+
+**Bean discovery modes**: Weld 3.x+ defaults to `annotated` bean discovery (only scan classes with bean-defining annotations like `@ApplicationScoped`, `@Dependent`). The `all` mode (scan everything) is triggered by `beans.xml` with `bean-discovery-mode="all"`. In large WARs with hundreds of classes, `annotated` mode significantly reduces startup time. When troubleshooting CDI injection failures, the first step is verifying the class is in a valid bean archive with the correct discovery mode.
 
 **Why Weld**: CDI is complex enough that maintaining a proprietary implementation would require tracking every TCK change. Weld is the only implementation with 100% TCK history. Liberty's contribution is the integration layer: classloader bridging, transaction context propagation, and DS service exposure as CDI beans.
 
@@ -43,53 +47,69 @@ Liberty's Jakarta EE programming model domain solves the problem of **how to run
 
 **Call handler chain**: The chain is: SecurityHandler → CMT Transaction Handler → Interceptor Invocation → Bean Method. Each handler wraps the next. The transaction handler starts or joins a JTA transaction based on the `@TransactionAttribute`. The security handler enforces `@RolesAllowed` / `@DenyAll`. After the bean method returns, the chain unwinds in reverse — the transaction handler commits or rolls back.
 
+**CMT transaction attribute semantics in practice**: `REQUIRED` (default) begins a transaction if one doesn't exist, or joins an existing one. `REQUIRES_NEW` always suspends any existing transaction and begins a new one — critical for audit logging that must commit even if the caller rolls back. `MANDATORY` fails if no transaction exists — use to enforce that callers must manage transaction boundaries. `NOT_SUPPORTED` suspends any existing transaction — useful for read operations that should not be affected by an ongoing transaction timeout.
+
+**Stateless EJB pooling**: Stateless EJBs are maintained in a pool. The container creates instances up to `maxPoolSize` (configurable via `<ejbContainer>`) and returns them to the pool after each method call. Pool miss (all instances busy) causes the caller to wait for a pool entry. Unlike `@Singleton`, pool instances don't need lock management — concurrency is handled by pool allocation. For very expensive-to-create beans, consider `@Startup` `@Singleton` for singleton initialization.
+
 **Stateful EJB passivation**: `@Stateful` beans idle beyond `@StatefulTimeout` are passivated: serialized to disk by `StatefulPassivationPolicy`. On next access, they are activated (deserialized). Passivation requires all fields to be serializable or `@AroundActivate`/`@AroundPassivate` callbacks to handle non-serializable state.
 
-**Timer service**: `EJBTimerServiceImpl` provides `@Schedule` and programmatic timers. Liberty uses a custom scheduler backed by a JDBC store (for persistent timers) or in-memory (for non-persistent). Persistent timers survive server restart.
+**Timer service**: `EJBTimerRuntime` provides `@Schedule` and programmatic timers. Liberty uses a custom scheduler backed by a JDBC store (for persistent timers) or in-memory (for non-persistent). Persistent timers survive server restart. In container environments, the timer JDBC store must be on an externalized database — otherwise timers are lost when a pod is replaced. For Kubernetes-native timer equivalents, prefer Kubernetes CronJob resources.
 
 **Key entry points**:
-- `com.ibm.ws.ejbcontainer.core/src/com/ibm/ws/ejbcontainer/InternalEJBContainerFactory.java` — DS component; creates and manages EJB module containers.
-- `com.ibm.ws.ejbcontainer.session/src/com/ibm/ws/ejbcontainer/session/impl/StatelessSessionBeanImpl.java` — Stateless session bean implementation; see `preInvoke()` for container intercept logic.
-- `com.ibm.ws.ejbcontainer.mdb.core/src/com/ibm/ws/ejbcontainer/mdb/internal/MessageEndpointFactoryImpl.java` — JCA `MessageEndpointFactory` for MDB; activated by JMS resource adapter.
+- `com.ibm.ws.ejbcontainer/src/com/ibm/ws/ejbcontainer/osgi/internal/EJBContainerImpl.java` — DS root component; creates and manages EJB module containers; see `startEJBInWARModule()` / `stopEJBInWARModule()`.
+- `com.ibm.ws.ejbcontainer.core/src/com/ibm/ejs/container/BeanMetaData.java` — Per-bean metadata; holds transaction attributes, interceptor list, and security role mappings for each bean class.
+- `com.ibm.ws.ejbcontainer.core/src/com/ibm/ejs/container/StatefulBeanO.java` — Stateful session bean instance; `passivate()` / `activate()` serialization lifecycle.
+- `com.ibm.ws.ejbcontainer.mdb/src/com/ibm/ws/ejbcontainer/mdb/internal/MessageEndpointFactoryImpl.java` — JCA `MessageEndpointFactory` for MDB; activated by JMS resource adapter.
 
-### 2.3 JPA Container — Persistence Unit Lifecycle
+### 2.3 JPA Container — Persistence Unit Lifecycle and EclipseLink Integration
 
 **What it is**: Liberty's JPA container (`com.ibm.ws.jpa.container.v32`) scans applications for `persistence.xml` files, creates `PersistenceUnit` descriptors, and delegates to EclipseLink (the default JPA provider) to create `EntityManagerFactory` instances. The container then wraps these as DS services and registers them in JNDI for `@PersistenceUnit` and `@PersistenceContext` injection. JPA container bridges JTA transactions by registering an `EntityManager` with the transaction manager.
+
+**EclipseLink classloader integration**: EclipseLink needs access to entity classes in the application classloader and must also generate dynamic proxy classes (bytecode weaving). Liberty's JPA container provides EclipseLink with a custom `ClassLoader` wrapper that delegates to the application's `WsClassLoader`. Static weaving (at build time via the EclipseLink static weaver) avoids runtime class transformation and is preferred for container environments where class loading performance matters.
+
+**JPA transaction bridging**: Container-managed `EntityManager`s (`@PersistenceContext`) are scoped to the active JTA transaction. Liberty's JPA container implements `EntityManager` sharing within a transaction: multiple calls to `@PersistenceContext`-injected EMs within the same transaction get the same underlying EclipseLink `EntityManager`. This is critical for first-level cache coherence — two `find()` calls for the same entity ID within a transaction return the same object instance.
 
 **Key entry points**:
 - `com.ibm.ws.jpa.container.v32/src/...` — PersistenceUnitProcessor scans deployment archives for `persistence.xml`.
 - `com.ibm.ws.jpa.container.eclipselink/src/...` — EclipseLink provider bootstrap; creates EclipseLink EMF using Liberty's classloader.
 - `com.ibm.ws.jpa.hybridpersistenceactivator/src/...` — Handles coexistence of multiple JPA provider bundles (e.g., EclipseLink + OpenJPA).
 
-### 2.4 RESTful Web Services (JAX-RS / RESTful WS)
+### 2.4 RESTful Web Services (JAX-RS / RESTful WS) — CXF Integration
 
-**What it is**: JAX-RS is implemented via **RESTEasy** (in older versions) and **CXF** depending on the Liberty feature version. `com.ibm.ws.jaxrs20` provides JAX-RS 2.x integration; `io.openliberty.restfulWS30` provides Jakarta RESTful Web Services 3.0+ (Jakarta EE 9+). Liberty's REST integration uses a `JaxRsAppManager` DS component that intercepts application deployment, discovers `@ApplicationPath` and `@Path` annotated classes, and registers JAX-RS servlets in the web container.
+**What it is**: JAX-RS in Liberty is implemented via **Apache CXF** for all Jakarta EE 9+ versions (`io.openliberty.restfulWS30`). CXF is a full JAX-RS 3.x implementation; Liberty's integration wraps CXF's application lifecycle with Liberty's DS deployment model. On application deployment, Liberty discovers all `Application` subclasses (annotated with `@ApplicationPath`) and resource classes (annotated with `@Path`) and registers them as CXF endpoints via the web container's servlet registration SPI.
 
-**Key pattern**: JAX-RS endpoints are servlet-like from the web container's perspective — they are registered as `ExtensionFactory` processors (see `liberty-web-container` guide §5.1). CDI injection into JAX-RS resource classes is handled by the Weld-JAX-RS integration bridge.
+**CXF endpoint registration**: Each `@ApplicationPath` becomes a CXF endpoint with its own `Bus` instance. The `Bus` holds CXF's interceptor chain for inbound and outbound processing. Liberty registers this CXF endpoint as a web container `ExtensionFactory` that claims the URL pattern `<applicationPath>/*`. Incoming requests matching that pattern bypass Liberty's servlet dispatch and flow directly into CXF's interceptor chain.
+
+**CDI integration with JAX-RS**: `@Inject`-annotated fields in `@Path`-annotated resource classes are resolved by Weld at JAX-RS endpoint creation time. CXF's CDI integration (`CxfCdiInvoker`) invokes CDI's `BeanManager.getReference()` to obtain the CDI-managed resource bean instance, rather than instantiating resource classes directly. This is why resource classes declared as CDI `@ApplicationScoped` (singleton) or `@RequestScoped` (per-request instance) work correctly.
 
 **Key entry points**:
-- `com.ibm.ws.jaxrs20/src/com/ibm/ws/jaxrs20/component/JaxRsAppManager.java` — DS component; app deployment listener that registers JAX-RS servlets.
-- `io.openliberty.restfulWS30.internal/src/...` — RESTEasy or CXF bootstrap for Jakarta EE 9+ versions.
+- `com.ibm.ws.jaxrs.2.0.common/src/com/ibm/ws/jaxrs20/bus/LibertyApplicationBusFactory.java` — CXF bus factory; creates the CXF application bus per JAX-RS application context.
+- `io.openliberty.restfulWS30.internal/src/...` — CXF bootstrap for Jakarta EE 9+ versions.
 
-### 2.5 JSON-B and JSON-P
+### 2.5 JSON-B and JSON-P — Third-Party Delegation
 
 **What it is**: Liberty provides JSON-B (JSON Binding) via Yasson and JSON-P (JSON Processing) via Parsson as Jakarta EE standard implementations. They are thin integration bundles that expose the provider implementations as OSGi services. No Liberty-specific logic; Liberty contributes classloader isolation and feature lifecycle.
 
-**Key bundles**:
-- `com.ibm.ws.jsonb.service` — Delegates to Yasson (`org.eclipse.yasson`) for JSON-B.
-- `com.ibm.ws.jsonp.internal` — Wraps Parsson for JSON-P.
+**Why thin wrappers**: Yasson and Parsson are the Jakarta EE reference implementations with 100% TCK compliance. Wrapping them as OSGi services gives Liberty's classloading model control over which version of these libraries the application sees, preventing conflicts between application-bundled JSON libraries and the container-provided ones.
 
-### 2.6 JTA Transaction Manager
+**Key bundles**:
+- `com.ibm.ws.jsonb.service` — Delegates to Yasson (`org.eclipse.yasson`) for JSON-B; `JsonbImpl` wraps Yasson's `JsonbBuilder`.
+- `com.ibm.ws.jsonp.internal` — Wraps Parsson for JSON-P; provides `JsonProvider` to applications.
+
+### 2.6 JTA Transaction Manager — 2PC and Recovery
 
 **What it is**: Liberty implements JTA via a custom transaction manager in `com.ibm.ws.transaction`. It provides `javax.transaction.UserTransaction` and container-managed transaction (CMT) demarcation for EJBs and CDI. The manager is a DS component that coordinates XA resources (JDBC, JMS) through the JCA layer. Transaction context is stored per-thread via `WsTransactionContext`.
+
+**Transaction logging and recovery**: The transaction manager writes a transaction log to disk. Every `prepare()` decision is durably recorded before the manager sends any `commit()`. If the server crashes between `prepare()` and `commit()`, the log is the only record of prepared-but-not-committed transactions. On restart, `RecoveryManager` reads the log and contacts each XA resource to `commit()` prepared transactions. This is the 2PC durability guarantee. In Kubernetes, the log must be on a persistent volume — a pod restart without persistent log storage means those in-doubt XA resources are permanently locked.
+
+**Transaction timeout vs. resource timeout**: `totalTranLifetimeTimeout` in `<transaction>` controls how long a JTA transaction is allowed to run before Liberty forcibly rolls it back. This is independent of JDBC `connectionTimeout` (how long to wait for a free connection from the pool). A transaction can be rolled back by Liberty even if a database query is still in progress — the JDBC connection may throw `SQLException` when the database finally responds to a query on a rolled-back connection.
 
 **Two-phase commit and recovery**: When multiple XA resources participate in a transaction, the manager performs 2PC: `prepare()` on all resources, then `commit()` (or `rollback()` if any prepare fails). Prepared-but-not-committed transactions are logged to the transaction log (`tranlog/`). On restart, `TransactionRecoveryManager` reads the log and completes any in-doubt transactions. This is why the tranlog directory must be on persistent storage in container environments.
 
 **Key entry points**:
-- `com.ibm.ws.transaction/src/com/ibm/ws/transaction/services/TransactionManagerService.java` — DS component; implements `UserTransaction` and `TransactionManager` interfaces.
+- `com.ibm.ws.transaction/src/com/ibm/ws/transaction/services/TransactionManagerService.java` — DS component; implements `UserTransaction` and `TransactionManager` interfaces; also exposes JMX diagnostics.
 - `com.ibm.ws.transaction/src/com/ibm/tx/jta/impl/TransactionImpl.java` — Per-transaction state; manages XA resource enlistment/delistment and 2PC protocol.
 - `com.ibm.ws.transaction/src/com/ibm/tx/jta/impl/RecoveryManager.java` — Reads transaction log on startup; completes in-doubt transactions.
-- `com.ibm.ws.transaction.management/src/com/ibm/ws/transaction/management/TransactionManagerMBeanImpl.java` — JMX access to active transactions for diagnostics.
 
 ---
 
@@ -137,12 +157,11 @@ Controls timeout, recovery log location, and startup recovery behaviour.
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `InternalEJBContainerFactory` | `com.ibm.ws.ejbcontainer.core/src/com/ibm/ws/ejbcontainer/InternalEJBContainerFactory.java` | Root DS; creates per-module `EJBContainerImpl` |
-| `EJBContainerImpl` | `com.ibm.ws.ejbcontainer.core/src/com/ibm/ws/ejbcontainer/internal/EJBContainerImpl.java` | Per-application EJB container; holds bean homes and interceptor factories |
-| `StatelessSessionBeanImpl` | `com.ibm.ws.ejbcontainer.session/src/com/ibm/ws/ejbcontainer/session/impl/StatelessSessionBeanImpl.java` | Stateless EJB; `preInvoke()` for transaction/security setup; call handler chain entry |
-| `StatefulSessionBeanImpl` | `com.ibm.ws.ejbcontainer.session/src/com/ibm/ws/ejbcontainer/session/impl/StatefulSessionBeanImpl.java` | Stateful EJB; `passivate()` / `activate()` serialization lifecycle |
-| `MessageEndpointFactoryImpl` | `com.ibm.ws.ejbcontainer.mdb.core/src/com/ibm/ws/ejbcontainer/mdb/internal/MessageEndpointFactoryImpl.java` | MDB endpoint; coordinates with JCA activation spec |
-| `EJBTimerServiceImpl` | `com.ibm.ws.ejbcontainer.timer/src/...` | `@Schedule`, `@Timeout` timer management; persistent timers backed by JDBC store |
+| `EJBContainerImpl` | `com.ibm.ws.ejbcontainer/src/com/ibm/ws/ejbcontainer/osgi/internal/EJBContainerImpl.java` | Root DS component; manages per-module EJB containers; `startEJBInWARModule()` / `stopEJBInWARModule()` |
+| `BeanMetaData` | `com.ibm.ws.ejbcontainer.core/src/com/ibm/ejs/container/BeanMetaData.java` | Per-bean metadata; transaction attributes, interceptor list, security role mappings |
+| `StatefulBeanO` | `com.ibm.ws.ejbcontainer.core/src/com/ibm/ejs/container/StatefulBeanO.java` | Stateful EJB instance; `passivate()` / `activate()` serialization lifecycle |
+| `MessageEndpointFactoryImpl` | `com.ibm.ws.ejbcontainer.mdb/src/com/ibm/ws/ejbcontainer/mdb/internal/MessageEndpointFactoryImpl.java` | MDB endpoint; coordinates with JCA activation spec |
+| `EJBTimerRuntime` | `com.ibm.ws.ejbcontainer/src/com/ibm/ws/ejbcontainer/osgi/EJBTimerRuntime.java` | `@Schedule`, `@Timeout` timer management interface; persistent timers backed by JDBC store |
 | `EJBSecurityCollaboratorImpl` | `com.ibm.ws.ejbcontainer.security/src/...` | Security handler in call chain; enforces `@RolesAllowed`, `@DenyAll`, `@PermitAll` |
 
 ### 4.3 JPA
@@ -150,25 +169,23 @@ Controls timeout, recovery log location, and startup recovery behaviour.
 | Class | Path | What to look for |
 |-------|------|------------------|
 | `JPAContainerImpl` | `com.ibm.ws.jpa.container.v32/src/...` | Scans `persistence.xml`; creates `EntityManagerFactory` |
-| `EclipseLinkProvider` | `com.ibm.ws.jpa.container.eclipselink/src/...` | EclipseLink bootstrap; classloader and logging integration |
-| `HybridPersistenceActivator` | `com.ibm.ws.jpa.hybridpersistenceactivator/src/...` | Multi-provider coexistence logic |
+| `HybridPersistenceActivator` | `com.ibm.ws.jpa.hybridpersistenceactivator/src/com/ibm/ws/javaee/persistence/internal/HybridPersistenceActivator.java` | JPA container activator; discovers persistence units, creates `EntityManagerFactory` proxies, handles multi-provider coexistence |
 
 ### 4.4 JTA
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `TransactionManagerService` | `com.ibm.ws.transaction/src/com/ibm/ws/transaction/services/TransactionManagerService.java` | JTA `TransactionManager` DS component |
+| `TransactionManagerService` | `com.ibm.ws.transaction/src/com/ibm/ws/transaction/services/TransactionManagerService.java` | JTA `TransactionManager` DS component; also exposes JMX diagnostics |
 | `TransactionImpl` | `com.ibm.ws.transaction/src/com/ibm/tx/jta/impl/TransactionImpl.java` | Per-transaction XA coordination; 2PC state machine |
 | `RecoveryManager` | `com.ibm.ws.transaction/src/com/ibm/tx/jta/impl/RecoveryManager.java` | In-doubt transaction recovery from tranlog on startup |
 | `UOWManagerService` | `com.ibm.ws.transaction/src/com/ibm/ws/transaction/services/UOWManagerService.java` | IBM `UOWManager` SPI for programmatic transaction demarcation |
-| `TransactionManagerMBeanImpl` | `com.ibm.ws.transaction.management/src/com/ibm/ws/transaction/management/TransactionManagerMBeanImpl.java` | JMX MBean; `listActiveTransactions()` for diagnostics |
 
 ### 4.5 JAX-RS / RESTful WS
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `JaxRsAppManager` | `com.ibm.ws.jaxrs20/src/com/ibm/ws/jaxrs20/component/JaxRsAppManager.java` | App deployment listener; discovers `@ApplicationPath` and registers servlets |
-| `JaxRsProviderFactoryService` | `com.ibm.ws.jaxrs20/src/com/ibm/ws/jaxrs20/providers/JaxRsProviderFactoryService.java` | Registers Liberty-specific JAX-RS providers (JSON-B, security, tracing) |
+| `LibertyApplicationBusFactory` | `com.ibm.ws.jaxrs.2.0.common/src/com/ibm/ws/jaxrs20/bus/LibertyApplicationBusFactory.java` | Creates CXF application bus per JAX-RS application; wires Liberty classloader into CXF |
+| `JaxRsProviderFactoryService` | `com.ibm.ws.jaxrs.2.0.common/src/com/ibm/ws/jaxrs20/api/JaxRsProviderFactoryService.java` | Registers Liberty-specific JAX-RS providers (JSON-B, security, tracing) |
 
 ---
 
@@ -234,7 +251,7 @@ A: The transaction log records 2PC prepare decisions that have not yet received 
   ```bash
   find dev -name "BeanDeploymentArchiveImpl.java" -path "*/src/*"
   find dev -name "TransactionManagerService.java" -path "*/src/*"
-  find dev -name "InternalEJBContainerFactory.java" -path "*/src/*"
+  find dev -name "EJBContainerImpl.java" -path "*/src/*"
   ```
 
 ---

@@ -321,6 +321,43 @@ collective addReplica --host=controller2.example.com \
 | `collective replicate` | Add a replica controller |
 | `collective fileTransfer` | Transfer files to/from a member |
 
+### Auto-Scaling (Liberty ND Feature)
+
+Liberty ND adds automatic cluster scaling to a collective. Two features are required — one on the controller server, one on each member:
+
+| Feature | Role |
+|---|---|
+| `scalingController-1.0` | Installed on the collective controller; manages scaling policy |
+| `scalingMember-1.0` | Installed on each cluster member; reports workload to the controller |
+
+> `scalingMember-1.0` is **not available** on IBM i.
+
+The scaling controller supports two usage modes:
+- **JVM elasticity** — starts and stops existing pre-provisioned Liberty servers based on workload and scaling policies. No new software is installed.
+- **Liberty elasticity** — installs Liberty onto registered hosts and provisions new servers on demand, then starts/stops them.
+
+All scaling member servers must also be members of a **cluster** — policy information is applied at the cluster level. If multiple scaling members share a host, only one acts as the "host leader" communicating with the controller; a different member takes over if the leader stops.
+
+### Dynamic Routing (Liberty ND Feature)
+
+Dynamic routing automatically updates the WebSphere HTTP plug-in routing configuration (`plugin-cfg.xml`) as servers start, stop, and join/leave the collective. No manual routing configuration updates are required.
+
+**Required feature (on the controller):** `dynamicRouting-1.0`
+
+**Setup command:**
+```bash
+# Generate plugin-cfg.xml and keystore for the web server plug-in
+dynamicRouting setup --host=controller.example.com --port=9443 \
+    --user=admin --password=adminPass --collectives=myCollective
+```
+
+**Routing rules** can be used to override the default round-robin load balancing:
+- Route requests from specific IP ranges to a particular cluster.
+- Redirect or reject requests based on context root or host header.
+- Fail-over routing: try collective A first; if no servers are available, use collective B.
+
+> When routing across multiple collectives, routing rules are read only from the collective specified by the `RoutingRulesConnectorClusterName` property in `plugin-cfg.xml`.
+
 ---
 
 ## 8. File Transfer
@@ -478,6 +515,9 @@ The service runs as `LocalSystem` by default. The service name follows the patte
 | Source | File |
 |---|---|
 | Admin Center | [admin-center.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/admin-center.adoc) |
+| Setting up dynamic routing | [collectives-setting-up-dynamic-routing](https://www.ibm.com/docs/en/was-liberty/nd?topic=collectives-setting-up-dynamic-routing-liberty) |
+| Routing rules for dynamic routing | [routing-rules-liberty-dynamic-routing](https://www.ibm.com/docs/en/was-liberty/nd?topic=collectives-routing-rules-liberty-dynamic-routing) |
+| Setting up auto scaling | [setting-up-auto-scaling-liberty](https://www.ibm.com/docs/en/was-liberty/nd?topic=collectives-setting-up-auto-scaling-liberty) |
 | Validating server connections | [validating-server-connections.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/validating-server-connections.adoc) |
 | Windows service | [windows-service.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/windows-service.adoc) |
 | `server` commands reference | [server-commands.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/command/server-commands.adoc) |

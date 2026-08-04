@@ -44,8 +44,17 @@ The architecture solves several problems: how to support multiple user registry 
 
 **Why this design**: JAAS `LoginContext` allows stackable `LoginModule` implementations. Liberty adds its own `CallbackHandler` plumbing on top of standard JAAS, allowing different authentication flows (username/password, X.509 certificate, LTPA token, SPNEGO token) to route through the same service endpoint. New auth flows are added as new JAAS login configurations, not as changes to the service interface.
 
-**Key entry point**:
+**JAAS login configuration dispatch**: The `AuthenticationService` implementation selects a JAAS login configuration name based on the authentication materials. Common configurations:
+- `WASUsernameAndPassword` — username + password credential path; calls `UserRegistry.checkPassword()`
+- `WASCertificate` — X.509 certificate path; calls `UserRegistry.mapCertificate()`
+- `WASLTPAToken` — LTPA token path; delegates to `LTPATokenService.recreateSubject()`
+- `WASKerberos` — SPNEGO token path; validates via GSSAPI and calls the Kerberos realm's `UserRegistry`
+
+Each JAAS configuration is a stack of `LoginModule`s. The liberty-specific modules handle credential extraction, cache lookup, user registry interaction, and Subject population. Third-party code can inject additional `LoginModule`s via `<jaasLoginContextEntry>` in `server.xml`.
+
+**Key entry points**:
 - `com.ibm.ws.security.authentication/src/com/ibm/ws/security/authentication/AuthenticationService.java` — interface with three `authenticate()` overloads and `getAuthCacheService()`. Everything in the security stack calls one of these three methods.
+- `com.ibm.ws.security.authentication.builtin/src/com/ibm/ws/security/authentication/internal/jaas/JAASServiceImpl.java` — DS component; manages JAAS configuration registry; resolves login configuration names to `LoginModule` stacks.
 
 ### 2.2 UserRegistry — Pluggable User Store Pattern
 
@@ -53,8 +62,11 @@ The architecture solves several problems: how to support multiple user registry 
 
 **Why this design**: Decouples authentication from the user store. `AuthenticationService` calls `UserRegistry.checkPassword()` but doesn't know or care whether it's talking to an in-memory list (BasicRegistry), an LDAP directory, a WIM federated repository, or a custom implementation via BELL. New registry types are added as new DS components — no changes to `AuthenticationService`.
 
+**Registry service properties**: Every `UserRegistry` DS component publishes a `com.ibm.ws.security.registry.type` service property. `UserRegistryService` uses this property to route authentication to the correct registry implementation when multiple registries are configured (federated or realm-segregated scenarios). The WIM (Federated Repositories) registry is itself a `UserRegistry` implementation that aggregates sub-registries (LDAP, file, database) behind the standard interface.
+
 **Key entry points**:
 - `com.ibm.ws.security.registry/src/com/ibm/ws/security/registry/UserRegistry.java` — internal SPI; all registry implementations must satisfy this contract
+- `com.ibm.ws.security.registry/src/com/ibm/ws/security/registry/UserRegistryService.java` — lookup service; resolves realm name to concrete `UserRegistry` implementation
 - `com.ibm.ws.security.registry.basic/src/com/ibm/ws/security/registry/basic/internal/BasicRegistry.java` — canonical simple implementation; DS `@Component` activated by `<basicRegistry>` config; shows the metatype → `@Activate` injection pattern
 
 ### 2.3 Authentication Cache
@@ -63,11 +75,121 @@ The architecture solves several problems: how to support multiple user registry 
 
 **Why this design**: User registry authentication is expensive (LDAP round trips, crypto). Caching at the Subject level — with a configurable TTL — lets Liberty handle high-request-rate workloads without LDAP overload. JCache support (`JCacheAuthCache`) allows the cache to be distributed across a Liberty collective.
 
+**Cache key strategy**: Each credential type has a `CacheKeyProvider` that generates a lookup key without storing the raw credential. For username/password, the key is `SHA256(realm + ":" + username + ":" + password)`. For LTPA tokens, the key is derived from the token's serialized bytes. X.509 certificates use the certificate's encoded public key. This design prevents cache-timing attacks and ensures cache entries are not valid across realm boundaries.
+
+**Cache invalidation**: The cache TTL is controlled by `<authentication cacheEnabled="true" cacheMaxSize="25000" cacheTimeout="600s"/>`. There is no explicit per-user invalidation in the default implementation — TTL expiry is the only eviction mechanism. `AuthCacheService.removeEntryFromCache(Subject)` removes a specific subject (used by logout flows in OIDC and JwtSso). JCache-backed caches support distributed eviction across collective members.
+
 **Key entry points**:
 - `com.ibm.ws.security.authentication/src/com/ibm/ws/security/authentication/cache/AuthCacheService.java` — SPI for the cache; used by `AuthenticationService` implementation
 - `com.ibm.ws.security.authentication.builtin/src/com/ibm/ws/security/authentication/internal/cache/AuthCacheServiceImpl.java` — default in-memory cache implementation
 - `com.ibm.ws.security.authentication.builtin/src/com/ibm/ws/security/authentication/internal/cache/JCacheAuthCache.java` — distributed JCache-backed implementation (activated when `distributedCache-1.0` feature is present)
 - `com.ibm.ws.security.authentication.builtin/src/com/ibm/ws/security/authentication/internal/cache/keyproviders/` — directory of `CacheKeyProvider` implementations; each handles a different credential type (BasicAuth, SSO token bytes, X.509 cert, JWT)
+
+### 2.4 LTPA Token Lifecycle
+
+**What it is**: LTPA (Lightweight Third Party Authentication) is Liberty's SSO token format. A single `LTPAToken2` cookie enables SSO across multiple Liberty servers that share the same LTPA key file. The token carries the user identity (realm + unique ID), issue time, expiry time, and a cryptographic signature that proves the token was issued by a trusted Liberty server.
+
+**Token structure** (LTPA v2):
+- **Header**: version byte, expiry time (8 bytes), server identity
+- **Payload**: realm, unique ID (DN or username), attributes map (optional)
+- **Signature**: SHA-1 or SHA-256 HMAC of header+payload using the LTPA private key
+
+**Key lifecycle operations**:
+1. **Issue**: After authentication, `TokenManager.createTokens(Subject)` calls `LTPATokenService.createToken()`. The token is serialized, Base64-encoded, and placed in an `LtpaCookie` (`SingleSignonToken`) attached to the HTTP response.
+2. **Validate**: On subsequent requests, `WebAppAuthorizationHelper` extracts the `LtpaCookie` from the request. `TokenManager.recreateSubject()` calls `LTPATokenService.validateToken()`, which verifies the signature and expiry, then reconstructs the `Subject` from the token payload.
+3. **Rotate**: `LTPAConfigurationImpl` watches the LTPA key file. On rotation, both old and new keys are active simultaneously; tokens signed with either key are valid until they expire. After the expiry window passes, the old key can be removed.
+
+**Multi-server SSO**: All servers sharing the LTPA key file can validate each other's tokens. The key file contains 3DES-encrypted public/private DH keys (for secure key sharing) and an AES-256 secret key (for token signing). The file is human-readable (properties format) and can be transferred between servers.
+
+**Key entry points**:
+- `com.ibm.ws.security.token.ltpa/src/com/ibm/ws/security/token/ltpa/internal/LTPATokenService.java` — DS component; `createToken()`, `validateToken()`, `recreateSubject()`
+- `com.ibm.ws.security.token.ltpa/src/com/ibm/ws/security/token/ltpa/internal/LTPAToken2.java` — token structure; `serialize()` and `deserialize()` for cookie encoding/decoding
+- `com.ibm.ws.security.token.ltpa/src/com/ibm/ws/security/token/ltpa/internal/LTPAConfigurationImpl.java` — `<ltpa>` config; key file creation, file monitoring, key rotation orchestration
+- `com.ibm.ws.security.token.ltpa/src/com/ibm/ws/security/token/ltpa/LTPAKeyInfoManager.java` — loads key pairs; manages dual-key window during rotation
+
+### 2.5 WebAppSecurityConfig and the HTTP Security Interceptor Chain
+
+**What it is**: `WebAppSecurityConfig` is the central configuration object for web security behaviour. It is shared between `WebAppAuthorizationHelper` and the individual authentication mechanism implementations. The web security interceptor chain processes every HTTP request in this order:
+
+```
+Incoming HTTP request
+  ↓
+WebAppSecurityCollaboratorImpl.preInvoke(request, response, servletName, enforceSecurity)
+  ↓
+1. Auth filter check (authFilter) — is this URL exempt or mapped to specific mechanism?
+  ↓
+2. UnprotectedResourceService check — is this resource declared authentication-exempt?
+  ↓
+3. TAI scan (TAIServiceImpl) — isTargetInterceptor() for each registered TAI
+  ↓
+4. Auth cache lookup — is a valid Subject cached for this credential?
+  ↓
+5. Challenge/authenticate:
+     • SPNEGO token present → SpnegoService
+     • LTPA cookie present → LTPATokenService.recreateSubject()
+     • Basic Auth header present → AuthenticationService (WASUsernameAndPassword)
+     • Form login → redirect or form-post processing
+     • Client certificate (mutual TLS) → AuthenticationService (WASCertificate)
+  ↓
+6. Authorization check (role-based or JACC Policy.implies())
+  ↓
+7. Subject placed on thread → proceed to servlet
+```
+
+**Why this ordering matters**: TAIs run before auth cache lookup because a TAI may produce a different subject than a cached credential (e.g., an OAuth TAI that introspects a token and gets fresh user attributes). Auth cache lookup runs before the expensive authentication mechanism to avoid unnecessary LDAP/crypto work. Authorization runs after authentication so the Subject is available for role check.
+
+**Key entry points**:
+- `com.ibm.ws.webcontainer.security/src/com/ibm/ws/webcontainer/security/WebAppSecurityCollaboratorImpl.java` — the interceptor chain dispatcher; `preInvoke()` drives the sequence above; implements both `IWebAppSecurityCollaborator` and `WebAppAuthorizationHelper`
+- `com.ibm.ws.webcontainer.security/src/com/ibm/ws/webcontainer/security/WebAppSecurityConfig.java` — configuration interface; `getAllowFailOver()`, `getSSORequiresSSL()`, `getHttpOnlyCookies()`, `getLogoutOnHttpSessionExpire()`
+- `com.ibm.ws.webcontainer.security/src/com/ibm/ws/webcontainer/security/UnprotectedResourceService.java` — SPI that OAuth/OIDC endpoints implement to exempt themselves from authentication
+
+### 2.6 SPNEGO/Kerberos Pre-Authentication Architecture
+
+**What it is**: SPNEGO (Simple and Protected GSSAPI Negotiation Mechanism) enables browser-to-server Kerberos authentication using the client's Windows domain credentials or Kerberos TGT. Liberty's SPNEGO implementation does not perform username/password authentication — it validates the Kerberos service ticket presented by the browser.
+
+**Protocol flow**:
+1. Request arrives with no authentication → Liberty responds `401 Unauthorized` with `WWW-Authenticate: Negotiate`.
+2. Browser (IE, Chrome, Firefox with `network.negotiate-auth.trusted-uris`) sends `Authorization: Negotiate <SPNEGO token>`.
+3. `SpnegoService` unwraps the SPNEGO token and extracts the Kerberos AP-REQ using the server's service principal (`HTTP/hostname@REALM`) keytab loaded by `Krb5Util`.
+4. GSSAPI validates the ticket against the KDC (or locally if the server has the session key) and returns the client principal name.
+5. The client principal is mapped to a Liberty user identity via `UserRegistryService` (realm lookup by Kerberos realm).
+6. A `Subject` is constructed and cached; LTPA cookie may be issued for subsequent requests (if `<spnego includeClientGSSCredentialInSubject="false"/>`).
+
+**Key implementation detail**: Liberty uses the JVM's GSSAPI (SunJSSE on Oracle/OpenJDK, IBM JGSS on IBM Java). The keytab file path and `krb5.conf` location are configurable; Kerberos constrained delegation (S4U2Proxy) is supported for service-to-service impersonation scenarios. `SpnegoService` holds a `GSSCredential` that it refreshes when the keytab changes (detected via `FileMonitor`).
+
+**Key entry points**:
+- `com.ibm.ws.security.spnego/src/com/ibm/ws/security/spnego/SpnegoService.java` — DS component activated by `<spnego>`; `authenticate()` validates SPNEGO tokens
+- `com.ibm.ws.security.spnego/src/com/ibm/ws/security/spnego/internal/Krb5Util.java` — loads keytab, constructs `GSSCredential`; maps Kerberos principal to Liberty user identity
+
+### 2.7 JACC Authorization Architecture
+
+**What it is**: JACC (Java Authorization Contract for Containers, Jakarta Authorization) defines a standard SPI for pluggable authorization providers. By default, Liberty uses its own role-based authorization logic. When a JACC provider is registered (`ProviderService`), `JaccServiceImpl` delegates all authorization decisions to the provider's `Policy` implementation instead.
+
+**Permission translation at deployment time**: When an application deploys, `WebJaccServiceImpl.propagateWebConstraints()` reads the deployment descriptor (web.xml security constraints, `@RolesAllowed`, etc.) and translates them into JACC `Permission` objects populated into the application's `PolicyConfiguration` via `PolicyConfigurationFactory`. This pre-computation happens once at deployment, not per request.
+
+**Authorization at runtime**: For each HTTP request, `WebAppAuthorizationHelper` constructs a `WebResourcePermission(requestURI, httpMethod)` and calls `Policy.implies(protectionDomain, permission)`. The protection domain carries the authenticated `Principal`s from the Subject. The `Policy` implementation checks whether any of those principals are associated with a role that has the requested permission.
+
+**Two-phase commit for PolicyConfiguration**: JACC `PolicyConfiguration.commit()` is called after all permissions are added for an application context. This two-phase protocol (open → add permissions → commit → in-service) matches the EE deployment lifecycle and ensures that policy checks are never executed against a partially-constructed permission set.
+
+**Key entry points**:
+- `com.ibm.ws.security.authorization.jacc/src/com/ibm/ws/security/authorization/jacc/internal/JaccServiceImpl.java` — DS component; wires JACC provider via `@Reference` on `ProviderService`
+- `com.ibm.ws.security.authorization.jacc.web/src/com/ibm/ws/security/authorization/jacc/web/impl/WebJaccServiceImpl.java` — permission translation from web.xml to JACC permissions at deployment
+- `com.ibm.ws.security.authorization.jacc.web/src/com/ibm/ws/security/authorization/jacc/web/impl/URLMap.java` — builds the URL-pattern-to-permission map; implements JACC spec §3.1.3.3 exact/path/extension matching hierarchy
+
+### 2.8 Security Auditing — CADF Event Model
+
+**What it is**: Liberty's audit framework is built around the CADF (Cloud Audit Data Federation) event model. Every security-significant event — authentication attempt, authorization decision, JMX operation, session login/logout — is represented as an `AuditEvent` subclass with standardized CADF fields.
+
+**Event routing architecture**: `AuditServiceImpl` is a DS component that maintains a map of `(eventType, outcome)` → `List<AuditHandler>`. When an event is sent via `AuditService.sendEvent(AuditEvent)`, the service serializes the event to JSON and routes it to all registered handlers that declared interest in that event type and outcome. Multiple handlers can receive the same event simultaneously — a typical production deployment routes to both a local file handler and a custom SIEM handler.
+
+**Handler registration protocol**: An `AuditHandler` DS component calls `AuditService.registerEvents(handlerName, AuditEventList)` in its `@Activate` method to declare which event types and outcomes it handles. This registration-by-capability model means adding a new handler does not require any change to `AuditServiceImpl` — it discovers new handlers automatically via OSGi service registry.
+
+**Encryption and signing**: `AuditFileHandler` supports AES-256 encryption of individual log records (`AuditEncryptionImpl`) and RSA-SHA256 chained signatures (`AuditSigningImpl`). Chained signing means each record's signature includes a hash of the previous record — tampering with any record in the chain invalidates all subsequent signatures. This provides cryptographic proof of log integrity (tamper evidence), not just record-level signing.
+
+**Key entry points**:
+- `com.ibm.ws.security.audit.source/src/com/ibm/ws/security/audit/source/AuditServiceImpl.java` — core routing service; `sendEvent()` is the primary API
+- `com.ibm.ws.security.audit.file/src/com/ibm/ws/security/audit/file/AuditFileHandler.java` — reference handler implementation; shows `@Activate` registration pattern and record writing
+- `com.ibm.websphere.security/src/com/ibm/websphere/security/audit/AuditEvent.java` — CADF base class; `eventType`, `initiator`, `target`, `outcome` fields follow CADF spec §5.4
 
 ---
 

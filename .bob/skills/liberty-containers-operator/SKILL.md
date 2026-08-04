@@ -548,6 +548,25 @@ spec:
 ```
 On OpenShift, use a custom `SecurityContextConstraint` granting these capabilities.
 
+### CRaC (Coordinated Restore at Checkpoint) — Application-Controlled Checkpoints
+
+In addition to Liberty's built-in `checkpoint.sh` mechanism, Liberty supports the **CRaC API** (`org.crac`) through the `crac-1.4` feature. CRaC lets application code register callbacks that run before a checkpoint is taken and after a restore — enabling applications to gracefully release and reacquire external resources (connections, sockets, etc.).
+
+**Feature:**
+```xml
+<featureManager>
+  <feature>crac-1.4</feature>
+</featureManager>
+```
+
+**API packages provided:**
+- `org.crac` — `Resource` interface with `beforeCheckpoint()` / `afterRestore()` callbacks
+- `org.crac.management` — JMX-based management of the CRaC lifecycle
+
+**Use case:** A database connection pool can implement `Resource`, close all connections in `beforeCheckpoint()`, and re-establish them in `afterRestore()`. This avoids stale connections in restored containers.
+
+> `crac-1.4` is separate from Liberty's own `checkpoint.sh`/`afterAppStart` mechanism. The two can be used together: Liberty coordinates the checkpoint timing; CRaC resources handle application-level cleanup and reinitialization.
+
 ---
 
 ## 12. JSON Logging for Kubernetes

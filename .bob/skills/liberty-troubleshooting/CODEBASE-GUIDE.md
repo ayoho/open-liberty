@@ -25,13 +25,21 @@ Liberty's troubleshooting domain addresses the question: **when something goes w
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 FFDC — Automatic Exception Capture
+### 2.1 FFDC — Automatic Exception Capture and Report Anatomy
 
 **What it is**: FFDC (First Failure Data Capture) is Liberty's automatic exception reporting mechanism. When an exception propagates through a point of significance (detected by `FFDCFilter.processException()` calls strategically placed in the codebase), `BaseFFDCService.createIncident()` writes a self-contained incident file to `${server.output.dir}/logs/ffdc/`. Each FFDC file includes: exception type, stack trace, JVM state snapshot, and diagnostic data contributed by any registered `IncidentForwarder` for the exception type.
 
 **Why first-failure capture**: Enterprise production systems often experience transient problems that don't recur. Waiting until a problem is reproducible on demand is inefficient. FFDC captures diagnostic data at the moment of failure, even if the system recovers. This is the single most important file to check when a Liberty server behaves unexpectedly.
 
 **FFDC file naming**: `ffdc_<timestamp>_<pid>_<ThreadID>_<sequence>.log` — each file is unique per incident.
+
+**Reading an FFDC file effectively**: FFDC files have a predictable structure:
+1. **Header block**: exception class name, message, timestamp, server name, and the exact source code location (class + method + line) that called `FFDCFilter.processException()`.
+2. **Stack trace**: full exception chain with all `Caused by:` entries. Always start from the deepest `Caused by:` — that is the root cause.
+3. **Introspected state block**: component-specific diagnostic data (e.g., connection pool depth, transaction state). This section is added by `IncidentForwarder` implementations registered for the exception type.
+4. **JVM state summary**: heap usage, loaded class count, thread count at the time of capture.
+
+**`IncidentForwarder` pattern**: Components that own the resources being reported in an FFDC can implement `IncidentForwarder` as a DS `@Component`. When `BaseFFDCService` processes an exception of a matching type, it calls the forwarder's `introspect()` method to add component state to the incident report. This is how the JDBC data source adds current pool size and wait queue depth to connection pool timeout FFDC files.
 
 **Key entry points**:
 - `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/BaseFFDCService.java` — Core FFDC; see `createIncident()` for incident assembly.
@@ -42,22 +50,42 @@ Liberty's troubleshooting domain addresses the question: **when something goes w
 
 **What it is**: Liberty uses `java.util.logging` (JUL) internally and bridges all logging through `Jsr47TraceService`. The `traceSpecification` in `<logging>` controls which logger names emit at which level. A trace specification like `com.ibm.ws.security.*=all:*=info` means: `com.ibm.ws.security` and its children log at ALL level; everything else at INFO. Trace output goes to `trace.log` (if `traceFileName` is set) or is interleaved with `messages.log`.
 
+**Trace specification syntax and priority**: Trace specs are processed left-to-right; the first matching spec wins. `com.ibm.ws.security.*=all:*=info` sets security trace to ALL, then all others to INFO. The wildcard `*` matches any remaining logger. `com.ibm.ws.security.*=all:com.ibm.ws.ssl.*=all:*=info` enables both security and SSL trace. Trace levels: `all` (most verbose), `fine`, `finer`, `finest`, `debug`, `info`, `audit`, `warning`, `error`, `fatal`, `off`.
+
+**Runtime trace change without server restart**: Trace can be changed dynamically via `server.xml` update (if file monitor is enabled), JMX (`com.ibm.websphere.logging.WsLogger MBean`), or the `server pause/resume` command. The change takes effect without application disruption. In Kubernetes, mount the `configDropins/overrides/` directory and update a `logging.xml` config fragment to change trace without pod restart.
+
+**Log file rolling**: `maxFileSize` (MB) and `maxFiles` (count) control rolling. When the active log file reaches `maxFileSize`, it is renamed to `trace.log.1`, and a new `trace.log` is started. Old files are deleted when the count exceeds `maxFiles`. Set both values appropriately for production: `<logging traceFileName="trace.log" maxFileSize="50" maxFiles="5"/>` is a reasonable starting point for verbose security trace.
+
 **Key entry points**:
 - `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/Jsr47TraceService.java` — JUL bridge; applies trace spec filtering; routes to file and console handlers.
 - `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/LogProviderImpl.java` — Root logging provider; activated at start level 1; configures file handlers and console handler.
 - `com.ibm.ws.logging.core/src/com/ibm/websphere/ras/TraceComponent.java` — Used by every Liberty class to obtain a trace component with a logger name.
 
-### 2.3 Server Dump
+### 2.3 Server Dump — Artifact Types and Introspection
 
-**What it is**: `server dump <serverName>` creates a ZIP archive containing: `messages.log`, `trace.log`, `ffdc/`, `server.xml` (sanitized), thread dumps, heap dumps (optional with `--include=heap`), and introspection files. The dump is triggered via JMX: the `server` command connects to the local MBean server and invokes `ServerDiagnosticsMBean.dump()`. Introspection data is contributed by `Introspectable` services — DS components that implement `Introspectable` can add their internal state to the dump.
+**What it is**: `server dump <serverName>` creates a ZIP archive containing: `messages.log`, `trace.log`, `ffdc/`, `server.xml` (sanitized), thread dumps, heap dumps (optional with `--include=heap`), and introspection files. The dump is triggered via JMX: the `server` command connects to the local MBean server using the local `.sCommandAuthToken` and invokes `ServerDiagnosticsMBean.dump()`.
+
+**Dump artifact inventory**:
+- `logs/messages.log` — all INFO+ messages from server start to dump time
+- `logs/ffdc/*.log` — all FFDC incidents
+- `introspection/*.txt` — state contributions from `Introspectable` DS components (one file per component)
+- `javacore.*.txt` — JVM thread dump (one per requested javacore)
+- `heapdump.*.phd` — JVM heap dump (only with `--include=heap`)
+- `*.zip` containing all of the above — the final deliverable for IBM Support
+
+**Introspection data quality**: Components that implement `Introspectable` should write structured, human-readable state. The `FeatureManager` introspection lists all installed features and their bundle state. `DataSourceService` lists pool size and current outstanding connections. Well-written introspection output reduces support cycle time significantly. Adding `Introspectable` to a DS component is the recommended way to make any new component diagnosable.
 
 **Key entry points**:
-- `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` — Handles `server dump` command; see `serverDump()`.
+- `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/commands/ProcessControlHelper.java` — Handles `server dump` command; see `serverDump()`.
 - `ServerDiagnosticsMBean` — JMX MBean that triggers the dump; registered by the kernel at startup.
 
 ### 2.4 Request Timing and Hang Detection
 
 **What it is**: The `requestTiming-1.0` feature uses the monitor SPI probe framework to track HTTP and JDBC request timing. When a request exceeds `slowRequestThreshold`, an `TRAS0112W` warning is logged. When a request exceeds `hungRequestThreshold`, a thread dump is triggered and `TRAS0114W` is logged. The JVM stack trace of the hung thread is captured in `messages.log`, providing the exact call chain at the time of the hang.
+
+**Hung request detection mechanism**: `HungRequestProbeExtension` runs a background thread that periodically inspects all active requests. When an active request's elapsed time exceeds `hungRequestThreshold`, the extension captures the JVM thread stack for that request's thread via a JVMTI-level stack dump API. The dump appears in `messages.log` immediately following the `TRAS0114W` message. Multiple thread dumps are captured if the request remains hung — typically at each `hungRequestThreshold` interval — providing a timeline of the stack state during the hang.
+
+**What the hung request dump tells you**: The stack trace shows the exact Java call chain at the time of the hang. Common patterns: (1) blocked on `PoolManager.getConnection()` — pool exhaustion; (2) blocked on `SocketInputStream.read()` — waiting for network response from database/downstream service; (3) blocked on `synchronized` in application code — thread deadlock; (4) running inside application code with normal-looking stacks — very slow algorithm or large data set.
 
 See `liberty-monitoring-observability` CODEBASE-GUIDE §2.4 for the probe architecture behind request timing.
 
@@ -67,7 +95,15 @@ See `liberty-monitoring-observability` CODEBASE-GUIDE §2.4 for the probe archit
 
 **Why introspection**: Support engineers analysing a dump need more than logs and stack traces — they need to know the configuration state at the time of failure. Introspection captures in-memory state that would otherwise be inaccessible post-mortem. Adding `Introspectable` to a DS component is the recommended way to make any new component diagnosable.
 
-### 2.6 Binary Log Viewer (HPEL logViewer)
+### 2.6 Javacore — JVM Thread Dump Analysis
+
+**What it is**: The JVM thread dump (`javacore.*.txt`) is generated by `server javadump <serverName>` or automatically by `HungRequestProbeExtension`. On IBM J9/OpenJ9, the javacore is a text file with: (1) JVM version and arguments; (2) all threads with their stack traces and monitor lock state; (3) monitor lock ownership tree (who owns which lock, who is waiting); (4) loaded class statistics; (5) GC and heap statistics.
+
+**Reading a javacore for deadlock**: Look for the section `1LKDEADLOCK` in the javacore — IBM J9 includes an automated deadlock detection section that identifies threads in a circular lock dependency. Without this, look for threads in `BLOCKED` state waiting for monitors owned by other blocked threads. The monitor ownership chain (`3LKMONOBJECT`, `3LKWAITERQ`) shows the cycle.
+
+**Reading a javacore for thread pool exhaustion**: Count threads in the Liberty default executor (`Default Executor` thread pool). If all `maxThreads` slots are occupied and all are waiting on the same resource (database, downstream service), that's pool exhaustion. The `ThreadPoolMXBean.activeThreads` MBean attribute reflects this state at runtime.
+
+### 2.7 Binary Log Viewer (HPEL logViewer)
 
 **What it is**: When `hpelLogging-1.0` is active, Liberty writes binary log records instead of text. The `bin/logViewer` command reads the binary repository with powerful filtering:
 
@@ -139,7 +175,7 @@ Problem: Unexpected server behaviour or error
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `ServerLauncher` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` | `server dump` and `server javadump` commands |
+| `ProcessControlHelper` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/commands/ProcessControlHelper.java` | `server dump` and `server javadump` commands |
 | `Introspectable` (interface) | `com.ibm.ws.kernel.service/src/com/ibm/wsspi/kernel/service/utils/ServerQuiesceListener.java` | Interface DS components implement to contribute to server dumps |
 
 ---

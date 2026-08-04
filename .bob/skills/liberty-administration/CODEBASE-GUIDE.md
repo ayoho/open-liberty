@@ -24,7 +24,7 @@ Liberty's administration domain solves the problem of **how to manage, inspect, 
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 JMX Over REST (`restConnector`)
+### 2.1 JMX Over REST (`restConnector`) — Design and Protocol
 
 **What it is**: Liberty exposes JMX MBeans via a REST API at `https://<host>:9443/IBMJMXConnectorREST`. The `restConnector-2.0` feature activates a servlet that translates JMX operations (invoke, getAttribute, setAttribute, query) to JSON-over-HTTPS. Any standard `JMXConnectorFactory.connect()` client can use the `RestConnector` JMX connector to manage Liberty remotely using standard JMX APIs without opening an RMI port.
 
@@ -36,44 +36,93 @@ Liberty's administration domain solves the problem of **how to manage, inspect, 
 - `POST /IBMJMXConnectorREST/mbeans/<objectNameEncoded>/operations/<opName>` — invoke operation
 - `POST /IBMJMXConnectorREST/file/` — file transfer (for Liberty Operator dump retrieval)
 
+**Object name encoding**: JMX `ObjectName` strings contain characters that are illegal in URI path segments (`:`, `,`, `=`). The REST connector URL-encodes the object name and then additionally escapes it in a Liberty-specific format. The `JMXConnector` client library handles this transparently; direct `curl` use requires understanding the encoding. The connector client JAR (`com.ibm.ws.jmx.connector.client.restConnector`) includes a utility for encoding object names.
+
+**Long-polling notifications**: The REST connector supports JMX notifications (listener registration, notification delivery) via HTTP long-polling. The client sends a `GET` to a notification endpoint that holds the connection open until a notification arrives or a timeout expires. This is how the Liberty Operator receives application state change events without polling individual MBeans on a timer.
+
 **Key entry points**:
 - `com.ibm.ws.jmx.connector.server.rest/src/com/ibm/ws/jmx/connector/server/rest/JMXRESTProxyServlet.java` — REST proxy servlet; routes JMX attribute/operation requests to the Liberty MBean server.
 - `com.ibm.ws.jmx/src/com/ibm/ws/jmx/PlatformMBeanService.java` — DS component exposing the platform MBean server to other Liberty bundles; Liberty's MBean server entry point.
 
-### 2.2 MBeans as Observability Points
+### 2.2 Liberty MBean Registration — `PlatformMBeanService` and Delayed Activation
 
-**What it is**: Every major Liberty subsystem registers MBeans. Connection pools register `ConnectionPoolMBean`, thread pools register `ThreadPoolMBean`, web applications register `ApplicationMBean`, and the server itself registers `ServerInfoMBean`. These MBeans expose runtime state (current pool size, active connections, application state) and operations (restart application, dump thread stacks).
+**What it is**: Liberty components register MBeans via `PlatformMBeanService` (an OSGi service in `com.ibm.ws.jmx`), not directly via `ManagementFactory.getPlatformMBeanServer()`. This indirection ensures MBeans are only registered after the platform MBean server is fully available. For MBeans that may be registered before their DS component is fully activated, `DelayedMBeanActivator` queues the registration until the framework is ready. Liberty adds namespace-based MBean routing for collective federation: a namespaced `ObjectName` prefix (e.g., `WebSphere:member=<host>,...`) causes the collective controller's JMX infrastructure to route the operation to the correct member's MBean server.
+
+**MBean registration lifecycle**: Liberty components register MBeans in their DS `@Activate` method and unregister in `@Deactivate`. The `PlatformMBeanService` OSGi service is the only supported registration path — it adds permission checks against Liberty's authorization service before allowing `getAttribute`, `setAttribute`, or `invoke` operations, and handles duplicate registration gracefully when DS components activate concurrently.
+
+**Key entry points**:
+- `com.ibm.ws.jmx/src/com/ibm/ws/jmx/internal/DelayedMBeanActivator.java` — queues MBean registrations until the platform MBean server is ready; handles the DS activation timing gap.
+- `com.ibm.ws.jmx/src/com/ibm/ws/jmx/PlatformMBeanService.java` — DS service; the universal injection point for any Liberty component that needs to register or query MBeans.
+
+### 2.3 MBeans as Observability Points
+
+**What it is**: Every major Liberty subsystem registers MBeans that expose runtime state and management operations. The MBean taxonomy follows a domain-per-subsystem convention: `WebSphere:type=ApplicationManager`, `WebSphere:type=ConnectionPool,jndiName=jdbc/myDB`, `WebSphere:type=ThreadPool,name=Default Executor`. This naming convention allows JMX clients to query by domain and type without knowing server-specific details.
+
+**Useful MBeans for operations**:
+- `WebSphere:name=<app>,type=Application` — `start()`, `stop()`, `restart()`, `getState()`; state changes trigger JMX notifications
+- `WebSphere:type=ConnectionPool,jndiName=<name>` — `maxSize`, `freeSize`, `waitingThreadCount`, `totalCreated` attributes
+- `WebSphere:type=ThreadPoolStats,name=Default Executor` — `activeThreads`, `poolSize`, `taskCount`
+- `WebSphere:type=LibertyDump` — `dumpServer()` operation; triggers a full diagnostic dump
+- `JMImplementation:type=MBeanServerDelegate` — standard JMX; identity and spec version info
+
+**MBean notification model**: Applications and tools subscribe to MBean attribute-change and operation notifications. `ApplicationMBean` fires a notification when an application transitions to `STARTED`, `STOPPED`, or `FAILED`. The Liberty Operator uses this notification path to know when a deployment completes or fails, rather than polling the `getState()` attribute.
 
 **Key entry points**:
 - `com.ibm.ws.monitor/src/com/ibm/websphere/monitor/jmx/ThreadPoolMXBean.java` — Thread pool MBean interface; attributes include `activeThreads`, `poolSize`.
-- `com.ibm.websphere.appserver.api.connectionpool/src/...` — Connection pool MBean interface.
 - `com.ibm.ws.jmx.connector.server.rest/src/...` — REST API mapping for MBean operations.
 
-### 2.3 Server Commands and Lifecycle
+### 2.4 Server Commands and Lifecycle — IPC Mechanisms
 
-**What it is**: Liberty's command-line tools (`bin/server`) invoke `ServerLauncher` (in the `com.ibm.ws.kernel.boot` bundle), which communicates with a running server via a local POSIX file lock mechanism (`${server.output.dir}/workarea/.sLock`) for `stop`, `status`, and `pause`/`resume`. For `server dump` and `server javadump`, a JMX-based mechanism (connecting to the local server's MBean server) is used to trigger diagnostic operations.
+**What it is**: Liberty's command-line tools (`bin/server`) invoke `Launcher` (in `com.ibm.ws.kernel.boot.core`), which delegates to `ProcessControlHelper` for operations against a running server. Two distinct IPC mechanisms are used depending on the operation:
+
+1. **File lock IPC** (for `stop`, `status`): The running server holds an exclusive file lock on `${server.output.dir}/workarea/.sLock` (managed by `ServerLock`). `ProcessControlHelper` attempts to acquire the lock in non-blocking mode — success means the server is not running. For `stop`, it writes a stop-command file to the workarea; the running server's file monitor detects it and initiates orderly shutdown via `FrameworkManager.shutdown()`.
+
+2. **JMX IPC** (for `dump`, `javadump`, `pause`, `resume`): `ProcessControlHelper` connects to the running server's JMX REST connector using a locally generated token stored in `${server.output.dir}/workarea/.sCommandAuthToken`. This token-based local authentication (no credentials needed) invokes the appropriate MBean operation (`LibertyDump.dumpServer()`, `PauseResume.pause()`).
+
+**Why two mechanisms**: File-lock IPC is reliable even when the JVM is unresponsive (e.g., GC pause, deadlock). Stop must work when the JVM can't service JMX requests. Diagnostic operations (dump, javadump) require the JVM to be responsive — they use JMX where available.
+
+**The `.sCommandAuthToken` file**: This file is created by the running server on startup and contains a randomly generated token. It is readable only by the OS user running the server. The `server dump` command reads this token and uses it as a one-time credential for the local JMX connection. This prevents unauthorized users on the same machine from triggering dumps.
 
 **Key entry points**:
-- `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` — CLI command dispatcher; see `serverStop()`, `serverStatus()` for local IPC patterns.
-- `com.ibm.ws.jmx/src/com/ibm/ws/jmx/internal/...` — MBean server that the `server dump` command connects to.
+- `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/Launcher.java` — JVM main entry point for `bin/server`; parses sub-command (`start`, `stop`, `status`, `dump`) and delegates to `ProcessControlHelper`.
+- `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/commands/ProcessControlHelper.java` — CLI command dispatcher; implements `serverStop()`, `serverStatus()`, `serverDump()` using file-lock and JMX IPC.
+- `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/ServerLock.java` — manages the `.sLock` file for server running-state detection.
+- `com.ibm.ws.kernel.boot.nested/src/com/ibm/ws/kernel/launch/internal/FrameworkManager.java` — `shutdown()` is the orderly server stop path triggered by the stop signal.
 
-### 2.4 Admin Center UI
+### 2.5 Admin Center UI
 
 **What it is**: The Admin Center (`adminCenter-1.0`) is a single-page web application that displays server configuration, application state, JVM metrics, and collective member information. It communicates exclusively via the `restConnector` REST API — it is a client of the same JMX-over-REST API that external tools use. The Admin Center UI files are packaged in the feature ESA.
 
+**Admin Center data flow**: The browser UI makes REST calls to `/IBMJMXConnectorREST/mbeans` to discover available MBeans, then polls or long-polls specific MBeans for state. The `ApplicationMBean` provides application start/stop controls. The `ThreadPoolStats` and `ConnectionPool` MBeans drive the metrics graphs. Config display uses a Liberty-specific `ServerConfiguration` MBean that reads and returns the current effective `server.xml` content (with passwords masked).
+
+**Security**: Admin Center access requires a user with the `administrator-role`. The `WebSphere:type=AdministratorRoleJAAS` mechanism maps Liberty's `<administrator-role>` config to a JAAS login role check. Attempting to browse Admin Center without this role produces a 403 before the JavaScript page loads.
+
 **Key note**: The Admin Center source is not in the Open Liberty GitHub repository; it is a closed-source IBM addition. Open Liberty includes the `adminCenter-1.0` feature but not its source.
 
-### 2.5 Collective Controller
+### 2.6 Collective Controller — Federated MBean Namespace
 
-**What it is**: A Liberty collective is a set of Liberty servers managed by a central **collective controller** server. The collective uses `restConnector-2.0` to communicate with **collective member** servers. The controller aggregates MBean data from all members and exposes them through a federated MBean server. Admin Center connects to the collective controller to show a dashboard of all members' application states, metrics, and health.
+**What it is**: A Liberty collective is a set of Liberty servers managed by a central **collective controller** server. The controller is a standard Liberty server with the `collectiveController-1.0` feature. Member servers run `collectiveMember-1.0` and register with the controller on startup via a persistent HTTPS management connection authenticated by mutual TLS certificates.
 
-**Architecture**: Collective members register with the controller on startup using a `collectiveMember-1.0` feature that opens a persistent management connection. The controller maintains a registry of members and their MBean namespaces. For each member, the controller creates proxy MBeans in its own namespace (`member:<host>,<wlpInstallDir>,<serverName>/`) that forward operations to the member's local MBean server.
+**Federated MBean namespace**: The collective controller intercepts MBean queries with namespaced `ObjectName`s (prefix `WebSphere:member=<host>,...`). For such queries, the JMX infrastructure forwards the operation over the HTTPS management connection to the target member's MBean server and returns the result. From the Admin Center's perspective, this is transparent — it sees a single unified MBean namespace covering all collective members.
 
-**Key note**: Collective source lives in `com.ibm.ws.collective.controller.*` bundles; these are IBM-proprietary and not in the Open Liberty repository. The collective member-side feature activation (`collectiveMember-1.0`) is in the open-source repository.
+**Collective topology considerations**: Each collective member must have a unique `<host>:<wlpInstallDir>:<serverName>` triple (the collective identity). The controller stores member registrations in a persistent backing store (`collectiveController.registrar`). Member de-registration happens when the member voluntarily disconnects or when the controller detects connection loss. Failover patterns require either a backup controller or an HA controller pair.
 
-### 2.6 Server Scripting (`wsadmin` alternative)
+**Key note**: Collective source lives in `com.ibm.ws.collective.controller.*` bundles; these are IBM-proprietary and not in the Open Liberty repository. The collective member-side feature (`collectiveMember-1.0`) is open source.
+
+### 2.7 Server Scripting (`wsadmin` alternative)
 
 **What it is**: Liberty does not have a `wsadmin`-equivalent scripting tool. Instead, administration scripting uses: (1) the `restConnector` REST API directly via `curl` or `httpie`; (2) the Liberty Ansible collection; (3) the Liberty Maven/Gradle plugin with `jmx` tasks; or (4) the Kubernetes operator for declarative configuration. For ad-hoc MBean operations from scripts, the JMX REST API is the access pattern.
+
+**Shell scripting pattern using the REST API**:
+```bash
+# Start an application via JMX REST
+MBEAN="WebSphere%3Aname%3DmyApp%2Ctype%3DApplication"
+curl -sk -u admin:adminpwd \
+  "https://localhost:9443/IBMJMXConnectorREST/mbeans/${MBEAN}/operations/start" \
+  -X POST -H "Content-Type: application/json" -d '{}'
+```
+
+The URL encoding of the `ObjectName` is the main complexity. The connector client library handles this for Java clients; shell scripts must encode manually.
 
 ---
 
@@ -115,15 +164,15 @@ JMXConnector conn = JMXConnectorFactory.connect(
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `JmxConnectorRestServlet` | `com.ibm.ws.jmx.connector.server.rest/src/com/ibm/ws/jmx/connector/server/rest/JmxConnectorRestServlet.java` | REST entry point; MBean operation routing; file transfer support |
-| `WsRuntimeMBeanServer` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/internal/WsRuntimeMBeanServer.java` | Liberty MBean server; extension of platform MBean server; adds Liberty-specific MBeans |
-| `PlatformMBeanService` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/PlatformMBeanService.java` | DS component; exposes the MBean server to other Liberty bundles |
+| `JMXRESTProxyServlet` | `com.ibm.ws.jmx.connector.server.rest/src/com/ibm/ws/jmx/connector/server/rest/JMXRESTProxyServlet.java` | REST entry point; MBean operation routing; file transfer support |
+| `PlatformMBeanService` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/PlatformMBeanService.java` | Liberty MBean server entry point; DS service used by all Liberty components that register or query MBeans |
+| `DelayedMBeanActivator` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/internal/DelayedMBeanActivator.java` | Queues MBean registrations until the platform MBean server is ready |
 
 ### 4.2 Server Lifecycle Commands
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `ServerLauncher` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` | CLI command dispatcher; `serverStop()`, `serverStatus()`, `serverDump()` |
+| `ProcessControlHelper` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/commands/ProcessControlHelper.java` | CLI command dispatcher; `serverStop()`, `serverStatus()`, `serverDump()` using file-lock and JMX IPC |
 
 ### 4.3 MBeans
 
@@ -163,9 +212,9 @@ A: The collective controller is for environments with 10+ Liberty server instanc
 - **New MBeans**: When a new subsystem registers MBeans, add to §2.2.
 - **Verification**:
   ```bash
-  find dev -name "JmxConnectorRestServlet.java" -path "*/src/*"
-  find dev -name "WsRuntimeMBeanServer.java" -path "*/src/*"
-  find dev -name "ServerLauncher.java" -path "*/src/*"
+  find dev -name "JMXRESTProxyServlet.java" -path "*/src/*"
+  find dev -name "PlatformMBeanService.java" -path "*/src/*"
+  find dev -name "ProcessControlHelper.java" -path "*/src/*"
   ```
 
 ---

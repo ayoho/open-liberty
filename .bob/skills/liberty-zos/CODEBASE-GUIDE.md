@@ -25,51 +25,68 @@ Liberty's z/OS domain solves the problem of **how to run Liberty in IBM's z/OS m
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 Angel Process — Privileged Services Bridge
+### 2.1 Angel Process — Privileged Services Bridge and IPC Model
 
-**What it is**: z/OS security operations (RACF authorisation checks, SAF user authentication) require elevated privileges not available to a standard Java process. The **Angel Process** is a separate privileged process that Liberty's server process communicates with via a shared memory or cross-memory (authorized program call, APC) mechanism. The Angel Process performs privileged SAF calls on behalf of the Liberty server process, returning results without exposing the privileges to the server JVM itself.
+**What it is**: z/OS security operations (RACF authorisation checks, SAF user authentication) require elevated privileges not available to a standard Java process. The **Angel Process** is a separate privileged process that Liberty's server process communicates with via cross-memory services (authorized program call mechanism). The Angel Process performs privileged SAF calls on behalf of the Liberty server process, returning results without exposing the privileges to the server JVM itself.
 
-**Why a separate process**: z/OS security requires Authorized Program Facility (APF) authorization for certain security system calls. A JVM cannot itself hold APF authorization; the Angel Process is a C program compiled and linked with the appropriate APF attributes. The two-process design keeps the untrusted JVM code isolated from the privilege boundary.
+**Why a separate process**: z/OS security requires Authorized Program Facility (APF) authorization for certain security system calls. A JVM cannot itself hold APF authorization — the Java JVM libraries are not APF-authorized and cannot call APF macros. The Angel Process is a C program compiled and linked with APF attributes via the z/OS program properties table. The two-process design keeps the untrusted JVM code isolated from the privilege boundary.
+
+**Angel Process startup**: The Angel Process is a separate started task in z/OS. It must be running before Liberty starts. Liberty's server startup fails with `CWWKB0104E` if the Angel Process is not available when the `wsSecurity-1.0` feature is activated. The Angel uses shared memory (`IARV64` extended memory) as the communication channel — Liberty writes a request buffer and the Angel reads it, performs the privileged operation, and writes the result back. This is a synchronous call from Liberty's perspective.
+
+**Angel security**: The Angel Process validates that requests come from authorized Liberty server instances by checking that the caller's address space name matches an authorized list in `SAF` profiles (`BBG.ANGEL.*`). Only server processes explicitly authorized by the RACF administrator can use the Angel.
 
 **Architecture note**: The Angel Process source is not in the Open Liberty repository. Liberty's side of the interface is in the `wsSecurity` feature for z/OS. See `dev/com.ibm.ws.zos.*` bundles (if present) for the Java side of the Angel Process communication.
 
-### 2.2 SAF/RACF User Registry
+### 2.2 SAF/RACF User Registry — Authentication and Authorization Delegation
 
-**What it is**: The `zosSAF-1.0` feature activates a `UserRegistry` implementation that delegates user authentication to z/OS SAF (typically backed by RACF or Top Secret). When a user provides credentials, instead of Liberty checking an LDAP or basic registry, it calls the SAF `RACROUTE` macro (via the Angel Process) to authenticate. Authorization (who can access what) can also be delegated to RACF profiles.
+**What it is**: The `zosSAF-1.0` feature activates a `UserRegistry` implementation that delegates user authentication to z/OS SAF (typically backed by RACF, ACF2, or Top Secret). When a user provides credentials, instead of Liberty checking an LDAP or basic registry, it calls the SAF `RACROUTE REQUEST=VERIFY` macro (via the Angel Process) to authenticate. Authorization (who can access what) is delegated to RACF resource profiles, replacing Liberty's role-based authorization with RACF's policy-based authorization.
+
+**SAF authentication flow**: (1) HTTP request arrives with credentials (basic auth, form login, or LTPA cookie); (2) Liberty `AuthenticationService` calls `ZosSAFRegistry.checkPassword(user, password)`; (3) `ZosSAFRegistry` issues an Angel Process call → APF-authorized SAF `RACROUTE REQUEST=VERIFY`; (4) RACF verifies credentials against the RACF database, checks for expired passwords, REVOKE status, etc.; (5) Returns a pass/fail result plus the user's connected groups; (6) Liberty auth cache stores the result for `<authCache>` duration to avoid repeated RACF calls.
+
+**RACF authorization patterns**: Liberty can be configured to check RACF resource profiles for authorization decisions (replacing Java EE role-based access control). The RACF profiles are in the `EJBROLE` or `SERVAUTH` class. A `@RolesAllowed("admin")` annotation on an EJB method maps to a RACF `EJBROLE` profile check. This allows RACF administrators to manage application access without modifying `server.xml`.
 
 **Integration model**: `ZosSAFRegistry` implements the same `UserRegistry` SPI as `BasicRegistry` and `LDAPRegistry`. The core authentication service (`AuthenticationService`) invokes the registry through the same SPI regardless of provider — the z/OS difference is entirely inside the `ZosSAFRegistry` DS component.
 
-**Key principle**: The same `AuthenticationService` → `UserRegistry` → `WebContainer` security pipeline described in the `liberty-security-core` CODEBASE-GUIDE applies unchanged on z/OS. The z/OS difference is which `UserRegistry` implementation is active.
+### 2.3 WLM (Workload Manager) Integration — Service Class and Enclave Model
 
-### 2.3 WLM (Workload Manager) Integration
+**What it is**: z/OS WLM (Workload Manager) classifies work into service classes based on transaction type, user ID, and application. Each HTTP request that Liberty receives can be associated with a WLM **enclave** — a WLM work unit that tracks resource consumption (CPU, I/O, elapsed time) at the request level. WLM uses this data to adjust CPU priority for Liberty's threads relative to other z/OS address spaces.
 
-**What it is**: z/OS WLM classifies work into service classes based on transaction type, user ID, and application. Liberty's `zosWLM-1.0` feature integrates with WLM to allow LPAR-level workload management of Liberty requests. Liberty reports request start/end timing to WLM so that WLM can adjust CPU priority for Liberty's threads relative to other z/OS address spaces.
+**Enclave lifecycle**: When a request arrives, Liberty creates a WLM enclave and joins it. When the request completes, Liberty leaves the enclave and reports completion to WLM. WLM adjusts the scheduling priority of Liberty's threads in real time based on the enclave's service class goal (response time, throughput). Transactions in high-priority service classes preempt lower-priority work.
 
-**Why WLM**: In a mixed-workload z/OS environment, WLM ensures critical business transactions (flagged as high-priority service classes) receive CPU time ahead of batch work. Without WLM integration, Liberty threads compete equally with all other z/OS work regardless of business priority.
+**WLM classification**: The z/OS WLM service policy classifies work by transaction classification rules. For Liberty, the transaction class (set via `<zosWLM transactionClass="..."/>`) determines which WLM service class applies. Different Liberty applications can be assigned different WLM transaction classes to differentiate their performance priorities.
 
-### 2.4 SMF Records
+**Why WLM**: In a mixed-workload z/OS environment, WLM ensures critical business transactions (flagged as high-priority service classes) receive CPU time ahead of batch work. Without WLM integration, Liberty threads compete equally with all other z/OS work regardless of business priority. In practice, critical OLTP workloads in Liberty should be in a `SYSHIGH` or `SYSSTC`-level service class.
 
-**What it is**: z/OS SMF (System Management Facilities) is the standard mechanism for recording operational data on z/OS. Liberty can write SMF records for request completion, security events, and transaction boundaries. These records are read by enterprise performance analysis tools (IBM Decision Support for z/OS, RMF).
+### 2.4 SMF Records — System Management Facilities Integration
+
+**What it is**: z/OS SMF (System Management Facilities) is the standard mechanism for recording operational data on z/OS. Liberty can write SMF records for request completion, security events, and transaction boundaries. These records are read by enterprise performance analysis tools (IBM Decision Support for z/OS, RMF) and by RACF reporting utilities.
 
 **SMF record types used by Liberty**:
-- **SMF Type 120 Subtype 11** (Liberty Requesttrack): one record per completed HTTP request; includes elapsed time, URI, user ID, response code.
-- **SMF Type 82** (RACF security events): authentication and authorization decisions written by RACF itself when SAF calls are made.
+- **SMF Type 120 Subtype 11** (Liberty Requesttrack): one record per completed HTTP request; includes elapsed time, URI, user ID, response code, WLM enclave data. This is the primary source for Liberty performance analysis on z/OS.
+- **SMF Type 82** (RACF security events): authentication and authorization decisions written by RACF itself when SAF calls are made. These are independent of Liberty — RACF writes them automatically.
+- **SMF Type 83** (RACF audit records via Liberty audit handler): Liberty's audit events are written to SMF 83 via a z/OS-specific audit handler (not in Open Liberty source).
+
+**SMF vs. Liberty trace**: SMF records are structured binary records suitable for programmatic analysis by IBM tools. Liberty trace (`trace.log`) is human-readable text. For capacity planning and SLA reporting on z/OS, SMF is the authoritative source. For debugging individual request failures, Liberty FFDC and trace are the tools.
 
 These records are written by native z/OS code invoked via the Angel Process; the Java application code and Liberty trace logs do not contain this data.
 
 ### 2.5 z/OS Specific Operational Patterns
 
-**Operator console commands**: z/OS operator console supports `MODIFY <Liberty-jobname>,COMMAND='<server-command>'` to trigger Liberty operations (server dump, pause, trace change) without SSH access. This is the equivalent of `server dump` on distributed — it calls the same JMX MBean via the operator console interface.
+**Operator console commands**: z/OS operator console supports `MODIFY <Liberty-jobname>,COMMAND='<server-command>'` to trigger Liberty operations (server dump, pause, trace change) without SSH access. This is the equivalent of `server dump` on distributed — it calls the same JMX MBean via the operator console interface. The Liberty operator console interface requires the `zosServerOperations-1.0` feature.
 
-**JVM on z/OS (IBM J9 / OpenJ9)**: Liberty on z/OS always uses IBM J9/OpenJ9 JVM. This JVM supports z/OS-specific garbage collection policies (`-Xgcpolicy:optthruput` for throughput, `-Xgcpolicy:gencon` for low latency). IBM J9 on z/OS also supports JVM dump formats (javacore, heap dump in TDUMP format) analysed with IBM's `jdmpview` tool.
+**RACF profile naming for Liberty**: RACF resource profiles for Liberty follow the pattern `BBG.PROFILED.<serverName>.*` (for profile-based access control to Liberty resources) and `SERVER.<serverName>.<clusterId>` (for collective controller membership authorization). These are configured separately from Liberty's `server.xml` by the z/OS security administrator. Common RACF classes used by Liberty: `EJBROLE` (EJB method authorization), `SERVAUTH` (web resource authorization when using RACF-based authorization), `CBIND` (collective binding).
 
-**RACF profile naming for Liberty**: RACF resource profiles for Liberty follow the pattern `BBG.PROFILED.<serverName>.*` (for profile-based access control to Liberty resources) and `SERVER.<serverName>.<clusterId>` (for collective controller membership authorization). These are configured separately from Liberty's `server.xml` by the z/OS security administrator.
+**JVM on z/OS (IBM J9 / OpenJ9)**: Liberty on z/OS always uses IBM J9/OpenJ9 JVM. This JVM supports z/OS-specific garbage collection policies (`-Xgcpolicy:optthruput` for throughput, `-Xgcpolicy:gencon` for low latency). IBM J9 on z/OS also supports JVM dump formats (javacore, heap dump in TDUMP format via `GTF` trace) analysed with IBM's `jdmpview` tool. z/OS TDUMP (transaction dump) analysis via `jdmpview` is significantly more powerful than heap dump analysis on distributed platforms due to the full address space snapshot it captures.
+
+**EBCDIC and character set considerations**: z/OS is an EBCDIC platform. Liberty handles the EBCDIC/ASCII translation at the transport layer — HTTP headers and bodies are converted to Unicode when read by the Liberty HTTP channel. Application code always works with Java Unicode strings. Binary data (e.g., base64-encoded tokens, binary file uploads) must be handled carefully — the Content-Type header must declare binary encoding to prevent EBCDIC translation of binary streams.
 
 ### 2.6 z/OS Connect (API Gateway)
 
 **What it is**: `zosConnect-2.0` is a Liberty feature that exposes z/OS CICS transactions, IMS programs, and batch jobs as REST APIs. It is a z/OS-specific feature with source in IBM proprietary bundles (not in the Open Liberty repository). Liberty's role is to host the z/OS Connect feature alongside regular Jakarta EE applications.
 
-**Relevance**: When discussing Liberty on z/OS, `zosConnect` is often the primary use case. The API gateway pattern maps RESTful requests to CICS transaction channels (`MQRFH2` formatted messages) without requiring any Java code in the CICS region.
+**CICS integration model**: z/OS Connect maps RESTful requests to CICS transaction channels (`MQRFH2` formatted messages) without requiring any Java code in the CICS region. The mapping is declarative — a z/OS Connect API definition specifies the URL pattern, the CICS transaction name, the channel/container names, and the JSON-to-COMMAREA (or channel) data binding. z/OS Connect handles the transformation, serialization, and error handling.
+
+**Why z/OS Connect matters for Liberty on z/OS**: Many enterprise z/OS shops have existing CICS and IMS assets. z/OS Connect is the primary modernization path — it exposes these assets as REST APIs to Liberty-hosted microservices or external API management layers (e.g., IBM API Connect) without any CICS/IMS code changes.
 
 ---
 

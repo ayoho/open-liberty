@@ -481,7 +481,12 @@ otel.sdk.disabled=false
 otel.service.name=App1
 ```
 
-**Key rule:** Runtime-level config takes precedence over application-level. When using multi-app runtime-level config, set `otel.sdk.disabled=false` at application level (not bootstrap) to enable per-app telemetry.
+**Key rule:** Runtime-level config (environment variables / system properties) takes precedence over application-level MicroProfile Config. Do not mix: use **either** environment variables/system properties **or** MicroProfile Config sources to enable/disable OpenTelemetry — not both. Mixing the two sources triggers `CWMOT5006W` (app config overrides runtime disable) or `CWMOT5007W` (runtime disable overrides app config) warnings.
+
+| Warning | Meaning |
+|---|---|
+| `CWMOT5006W` | Runtime explicitly disables telemetry, but an MP Config property in an application enables it — app setting wins (telemetry enabled) |
+| `CWMOT5007W` | Runtime enables telemetry, but an MP Config property disables it for an app — runtime setting wins (telemetry still enabled for that app) |
 
 ### OpenTelemetry Signal Configuration
 

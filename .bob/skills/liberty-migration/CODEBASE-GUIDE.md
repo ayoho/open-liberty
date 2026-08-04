@@ -33,30 +33,44 @@ Liberty's migration domain addresses two distinct migration paths: (1) **WebSphe
 
 **No-configuration-migration goal**: A core Liberty design principle is that new feature versions should require zero `server.xml` changes when upgrading — only the feature name changes. All new attributes get sensible defaults via metatype; existing attributes keep the same semantics. This is enforced by Liberty's compatibility test suite.
 
+**Zero-migration runtime architecture**: Liberty's architecture (OSGi + DS + Config Admin) means individual feature bundles can be updated without touching other features. When upgrading from Liberty 24.x to 25.x, the only required change is the feature version numbers in `server.xml` (or nothing at all if using versionless features). This is the "zero-migration" guarantee. Contrast with WAS traditional where upgrades required extensive testing of configuration compatibility.
+
 **Feature aliasing and `versionless` features**: The `jakartaee-11.0` platform feature resolves a complete, compatible set of Jakarta EE features. Applications simply enable `jakartaee-11.0` and Liberty selects appropriate feature versions. See `liberty-feature-reference` CODEBASE-GUIDE §4 for versionless resolution details.
 
 **Key entry point**:
 - `dev/com.ibm.websphere.appserver.features/visibility/public/jakartaee-11.0/com.ibm.websphere.appserver.jakartaee-11.0.feature` — Example platform feature manifest; see `WLP-Platform` header and `-features=` list.
 
-### 2.2 WAS Traditional Compatibility Features
+### 2.2 WAS Traditional Compatibility Features and APIs
 
 **What they are**: Liberty provides a set of `webProfile-*.0` and `javaee-*.0`/`jakartaee-*.0` platform features that aggregate per-spec feature versions. For WAS traditional users who need specific APIs (e.g., WebSphere-specific `ConnectionManager`, `WSConnectionSpec`), Liberty provides compatibility through:
 - **JCA-level compatibility**: `com.ibm.websphere.rsadapter.WSDataSource`, `WSConnectionSpec`, and `JDBCConnectionSpec` interfaces in `com.ibm.ws.jdbc` provide WAS traditional-compatible `DataSource` and connection spec APIs.
 - **JNDI compatibility**: Liberty's JNDI implementation supports `java:comp/env` and `java:global` lookups as required by Jakarta EE.
 - **Security API compatibility**: JAAS and `WSLoginContext` from WebSphere security are available in Liberty via `appSecurity-3.0+`.
 
+**WAS traditional APIs with no Liberty equivalent**: Some WAS trad APIs have no direct Liberty equivalent. These are the primary migration blockers:
+- `com.ibm.websphere.asynchbeans.WorkManager` — Replace with `ManagedExecutorService` (Jakarta Concurrency) or `@Asynchronous` EJB.
+- `com.ibm.websphere.scheduler.Scheduler` — Replace with EJB `@Schedule` timers or Kubernetes CronJob.
+- `com.ibm.websphere.sca.*` (SCA) — Service Component Architecture is WAS-only; no Liberty equivalent.
+- `com.ibm.ws.webservices.jaxws.*` (WAS JAX-WS private APIs) — Migrate to standard JAX-WS APIs.
+
+**WIM (Federated Repositories) in Liberty**: WAS traditional's Federated Repositories (WIM) user registry is equivalent to Liberty's `<federatedRepository>` with multiple `<participatingBaseEntry>` elements. The programmatic WIM API (`com.ibm.websphere.security.wim.*`) is available in Liberty via `federatedRegistry-1.0`. Applications that use WIM APIs directly (rather than the standard `UserRegistry`) can migrate with minimal changes.
+
 **Key classes**:
 - `com.ibm.ws.jdbc/src/com/ibm/websphere/rsadapter/WSConnectionSpec.java` — WAS-compatible connection spec API.
 - `com.ibm.ws.jdbc/src/com/ibm/websphere/rsadapter/WSDataSource.java` — WAS-compatible `DataSource` extension interface.
 - `com.ibm.ws.jdbc/src/com/ibm/websphere/ce/cm/ConnectionWaitTimeoutException.java` — WAS-compatible exception type.
 
-### 2.3 Jakarta EE Namespace Transition
+### 2.3 Jakarta EE Namespace Transition — javax.* to jakarta.*
 
-**What it is**: Jakarta EE 9 renamed all `javax.*` packages to `jakarta.*`. Liberty handles this by providing separate feature families:
+**What it is**: Jakarta EE 9 renamed all `javax.*` packages to `jakarta.*`. This was a breaking change affecting every Java EE application. Liberty handles this by providing separate feature families:
 - `javaee-8.0` and earlier: `javax.*` packages
 - `jakartaee-9.1` and later: `jakarta.*` packages
 
 Applications must choose a side. Liberty does not provide automatic bytecode transformation at runtime — that must happen before deployment using tools like the Eclipse Jakarta EE namespace transformer or Red Hat's `javax-jakarta-transformer`.
+
+**What must be transformed**: The namespace change affects (1) Java source code `import` statements; (2) deployment descriptors (XML namespaces changed from `http://java.sun.com/xml/ns/javaee` to `https://jakarta.ee/xml/ns/jakartaee`); (3) annotation processors that reference `javax.*` annotation classes; (4) persistence.xml, web.xml, ejb-jar.xml, and beans.xml namespaces. The bytecode transformer handles all of these automatically.
+
+**Testing strategy for namespace migration**: Run the application on Liberty with `jakartaee-9.1` features and compare behavior against the `javaee-8.0` baseline. CDI injection failures and `ClassNotFoundException` on `javax.*` classes are the most common symptoms of incomplete transformation. The Eclipse transformer can be run in dry-run mode to generate a report of what would be changed without modifying files.
 
 **Feature manifest pattern**: Each Jakarta EE 9+ feature specifies its API packages with the `jakarta.*` prefix in `IBM-API-Package`. Earlier features use `javax.*`. The feature resolution engine enforces that `javax.*` and `jakarta.*` API provider features are not active simultaneously for the same spec — a singleton constraint.
 
@@ -72,18 +86,26 @@ Applications must choose a side. Liberty does not provide automatic bytecode tra
 | `j2eeResourceFactory-1.0` (WAS-only) | Not needed; Liberty JCA is native |
 | AppServer-level thread pool | `<executor>` element |
 | JDBC provider → data source | `<jdbcDriver libraryRef=.../>` nested in `<dataSource>` |
+| Cell-level LTPA keys | `<ltpa keysFileName="..."/>` — same LTPA2 format |
+| Virtual host | `<virtualHost>` in Liberty |
 
 Liberty's `server.xml` is a complete, self-contained configuration; there is no equivalent to WAS traditional's `was.policy`, `admin.config`, or cell-level administration.
+
+**WAS admin scripting to Liberty equivalent**: WAS traditional's `wsadmin` Jython/Jacl scripts for admin operations have no direct Liberty equivalent. Common wsadmin patterns map to:
+- Application deployment (`AdminApp.install`) → `<application>` element in `server.xml` or `dropins/`
+- Data source creation (`AdminConfig.create DataSource`) → `<dataSource>` element
+- Server start/stop → `bin/server start|stop <serverName>`
+- Runtime attribute changes → `bin/server` JMX REST API or `server.xml` config change
 
 ### 2.5 EJB Migration Considerations
 
 **Stateful EJBs**: Stateful session beans with passivation are broadly compatible. WAS traditional clusters with Stateful Session Bean (SFSB) replication have no direct equivalent in Liberty. Replace with a session store (CDI `@SessionScoped` bean with HTTP session replication via `sessionDatabase-1.0` or JCache).
 
-**EJB 2.x Entity Beans**: Liberty does not support EJB 2.x entity beans (`EntityBean` interface). Migrate to JPA entities. This is the most common migration blocker for legacy WAS applications.
+**EJB 2.x Entity Beans**: Liberty does not support EJB 2.x entity beans (`EntityBean` interface). Migrate to JPA entities. This is the most common migration blocker for legacy WAS applications. IBM Transformation Advisor flags EJB 2.x entity bean usage as a critical migration issue.
 
 **WAS-specific EJB deployment descriptors**: `ibm-ejb-jar-bnd.xml`, `ibm-ejb-jar-ext.xml` are supported by Liberty with the same syntax for backward compatibility. However, WAS-specific extensions not in the Jakarta EE spec (e.g., extended WAS activity sessions, compensating transactions) are not supported.
 
-### 2.6 Application Class Loading Migration
+### 2.6 Application Class Loading Migration — WAS trad vs. Liberty
 
 WAS traditional uses a complex class loader hierarchy (cell, node, application, web module). Liberty uses a simpler model:
 - **Application class loader**: loads all application JARs (EAR/WAR/EJB)
@@ -91,6 +113,8 @@ WAS traditional uses a complex class loader hierarchy (cell, node, application, 
 - **Shared library class loader**: explicit `<sharedLibrary>` for common JARs
 
 The default in both WAS trad and Liberty is parent-first delegation. If a WAS application used `parent-last` (isolated) classloading, set `<application><classloader delegation="parentLast"/></application>` in Liberty.
+
+**Common classloading migration issues**: (1) Applications that packaged Spring or other frameworks that conflict with Liberty's provided versions — use `<classloader apiTypeVisibility="spec,third-party"/>` to prefer application-bundled versions; (2) Applications that used WAS's `isolated classloader` pattern for plugin hot-reload — Liberty's application hot-update (dev mode or dropins) replaces this; (3) EAR applications where web modules accessed EJB JAR classes not exposed via `Class-Path` — Liberty strictly enforces the EAR class loader hierarchy per spec.
 
 ---
 

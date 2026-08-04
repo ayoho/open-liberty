@@ -24,49 +24,60 @@ Liberty's installation domain solves the problem of **how to assemble a Liberty 
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 Liberty Runtime Image Layout
+### 2.1 Liberty Runtime Image Layout — Directory Structure and Separation
 
-**What it is**: A Liberty installation is a directory structure rooted at `wlp/`:
+**What it is**: A Liberty installation is a directory structure rooted at `wlp/`. The design separates the immutable runtime from the mutable user configuration:
 
 ```
 wlp/
 ├── bin/          server, featureUtility, securityUtility, serverPackage, etc.
 ├── dev/          API JARs and SPI JARs for compile-time use
-├── lib/          Kernel bundles and framework JARs
-├── templates/    Default server templates
+├── lib/          Kernel bundles, framework JARs, and installed feature bundles
+│   └── features/ Feature manifests (.mf files) for installed features
+├── templates/    Default server templates (used by 'server create')
 └── usr/
     └── servers/
         └── <serverName>/
-            ├── server.xml
+            ├── server.xml         ← primary configuration
             ├── bootstrap.properties
             ├── jvm.options
             ├── server.env
-            ├── apps/
-            ├── logs/
-            └── workarea/
+            ├── apps/              ← deployed application archives
+            ├── configDropins/
+            │   ├── defaults/      ← processed before server.xml
+            │   └── overrides/     ← processed after server.xml
+            ├── logs/              ← messages.log, trace.log, ffdc/
+            └── workarea/          ← runtime state; do not modify
 ```
 
-Features are installed as `.esa` archives (or expanded to `lib/` directly in a product install). The feature manifest source in `dev/com.ibm.websphere.appserver.features/` is compiled into the runtime image during the Liberty build.
+**Why the install/usr split**: The `wlp/` runtime can be shared across multiple server instances. Each server lives under `usr/servers/<name>` and is completely self-contained. This allows the runtime to be shared (reducing disk usage in traditional deployments) while keeping server configurations isolated. In containers, the runtime and a single server are typically co-located in the same image.
 
-**Server variables** (`wlp.install.dir`, `wlp.user.dir`, `server.output.dir`, `server.config.dir`) are resolved by `BootstrapConfig` at startup. Understanding these is essential for packaging Liberty in containers.
+**Path variable precedence**: Liberty path variables are resolved in a fixed order: (1) `bootstrap.properties`, (2) `server.env`, (3) JVM system properties. The key variables:
+- `WLP_OUTPUT_DIR` — overrides the parent of `server.output.dir` (default: `usr/servers/<name>`); in containers, set to a persistent volume path for log persistence
+- `WLP_USER_DIR` — overrides `usr/` entirely; useful for multi-installation shared-config deployments
+- `LOG_DIR` — shortcut for the logs directory within `server.output.dir`
 
-**Key entry point**:
+Features are installed as `.esa` archives (or expanded to `lib/` directly in a product install). The feature manifest source in `dev/com.ibm.websphere.appserver.features/` is compiled into the runtime image during the Liberty build. At runtime, `FeatureRepository` scans `lib/features/*.mf` to discover available features.
+
+**Key entry points**:
 - `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/BootstrapConfig.java` — Resolves all path variables; the authoritative source for the install layout logic.
 - `com.ibm.ws.kernel.service/src/com/ibm/wsspi/kernel/service/location/WsLocationAdmin.java` — SPI for resolving server paths from DS components at runtime; see `resolveString()`.
 
-### 2.2 `featureUtility` — Feature Installation Tool
+### 2.2 `featureUtility` — Feature Installation Tool and ESA Format
 
-**What it is**: `featureUtility install <feature>` resolves and downloads feature ESAs from a Maven repository (Maven Central, IBM's repository, or a mirror). The tool uses the feature install map (`com.ibm.ws.install.map`) to look up feature metadata: artifact coordinates (groupId, artifactId, version) for each feature. Once downloaded, ESAs are extracted to `lib/` and `lib/features/`.
+**What it is**: `featureUtility install <feature>` resolves and downloads feature ESAs (Enterprise Subsystem Archive) from a Maven repository (Maven Central, IBM's repository, or a mirror). An ESA is a ZIP file with a `.esa` extension containing: (1) the feature's OSGi bundles (`.jar` files); (2) the generated feature manifest (`.mf` file); (3) a `OSGI-INF/SUBSYSTEM.MF` entry for OSGi Subsystems compliance; and (4) a `wlp-info.xml` for Liberty install metadata. The tool uses the feature install map (`com.ibm.ws.install.map`) to look up feature metadata: artifact coordinates (groupId, artifactId, version) for each feature. Once downloaded, ESAs are extracted to `lib/` and `lib/features/`.
 
-**Why Maven-based delivery**: Using Maven coordinates means the same tooling used for application dependencies delivers Liberty features. CI/CD pipelines that already use Maven or Gradle can install features without custom provisioning logic. Mirrors and local repositories can substitute for internet connectivity in air-gapped environments.
+**Feature dependency resolution during install**: `featureUtility` reads the feature manifest's `-features=` (transitive dependencies) before downloading. It builds the complete set of features to install (including all dependencies) before making any network requests. This avoids partial installs where a feature is installed but its dependencies are not.
+
+**Why Maven-based delivery**: Using Maven coordinates means the same tooling used for application dependencies delivers Liberty features. CI/CD pipelines that already use Maven or Gradle can install features without custom provisioning logic. Mirrors and local repositories can substitute for internet connectivity in air-gapped environments. The `FEATURE_REPO_URL` environment variable (or `featureUtility.properties`) overrides the Maven repository URL for air-gapped installations.
+
+**Feature integrity verification**: After installation, `featureUtility` verifies feature checksums (`SHA-256`) against the manifest entries. Use `featureUtility verify` to check an existing installation's integrity (detects corrupted or tampered bundles). The checksums are embedded in `wlp-info.xml` within the ESA.
 
 **Key entry points**:
 - `com.ibm.ws.install.featureUtility/src/com/ibm/ws/install/featureUtility/cli/InstallServerAction.java` — Implements `featureUtility installServerFeatures`; reads `server.xml` and calls install logic.
 - `com.ibm.ws.install.featureUtility/src/com/ibm/ws/install/featureUtility/cli/InstallFeatureAction.java` — Implements `featureUtility installFeature`; drives the individual feature install workflow.
 - `com.ibm.ws.install/src/com/ibm/ws/install/repository/download/RepositoryDownloadUtil.java` — ESA download logic from Maven repository.
 - `com.ibm.ws.install.map/src/...` — Feature → Maven coordinates map; used by feature utility for coordinate lookup.
-
-**Feature install verification**: After installation, `featureUtility` verifies feature checksums against the manifest. Use `featureUtility verify` to check installation integrity. This is important in air-gapped environments where packages may be corrupted during transfer.
 
 ### 2.3 Gradle and Maven Plugin Architecture
 
@@ -78,16 +89,24 @@ Features are installed as `.esa` archives (or expanded to `lib/` directly in a p
 
 **Why external repository**: The Gradle and Maven plugins live in `https://github.com/OpenLiberty/ci.gradle` and `https://github.com/OpenLiberty/ci.maven` respectively, not in the `open-liberty` repository. Only the feature utility helper code (`wlp-mavenRepoTasks`) that supports plugin tasks is in this repository.
 
-**Dev mode internals** (`libertyDev`): When `libertyDev` starts Liberty, it enables `hotUpdate` mode which causes Liberty to watch the configured application archive for changes. The Gradle/Maven plugin compiles changed sources in the background and replaces the application archive. Liberty's `DeployedAppInfoFactory` detects the file change (via `FileMonitor`) and triggers a hot redeploy of only the changed application module, without stopping the server. Config changes to `server.xml` are picked up by the existing `ConfigFileMonitor`.
+**Dev mode internals** (`libertyDev`): When `libertyDev` starts Liberty, it enables a hot-update mode that signals Liberty to watch the configured application archive for changes. The Gradle/Maven plugin's compiler task runs in a background thread, detecting Java source changes via the build tool's incremental compilation. On recompile, the plugin writes the updated application archive. Liberty's `DeployedAppInfoFactory` detects the file change (via `FileMonitor`) and triggers a hot redeploy of only the changed application module, without stopping the server. Config changes to `server.xml` are picked up by the existing `ConfigFileMonitor`. The dev mode loop ensures test results are available immediately in the IDE after a change.
+
+**Liberty Maven plugin coordinate pinning**: The plugin manages Liberty's own installation directory (downloading and caching a Liberty runtime) when `<assemblyArtifact>` is not specified. This means `mvn liberty:run` in a new checkout works without a pre-installed Liberty — the plugin bootstraps the correct Liberty version from Maven Central. The cached Liberty install is stored in the Maven local repository under `io.openliberty:openliberty-kernel`.
 
 **Key entry point in this repo**:
 - `wlp-mavenRepoTasks/` — Gradle tasks for assembling the Maven repository used by the plugins.
 
-### 2.4 Liberty Tools (IDE Integration)
+### 2.4 Liberty Tools (IDE Integration) — Language Server and JMX Bridge
 
-**What it is**: Liberty Tools is an IDE extension for VS Code, IntelliJ IDEA, and Eclipse. It wraps the Gradle/Maven Liberty plugins to provide dev mode within the IDE. Liberty Tools does not use separate OSGi bundles; it communicates with the running Liberty server via the `restConnector-2.0` REST/JMX interface to provide application state and log streaming to the IDE.
+**What it is**: Liberty Tools is an IDE extension for VS Code, IntelliJ IDEA, and Eclipse. It provides three distinct integration points:
 
-**Key integration**: The `restConnector` JMX endpoint (port 9443 by default when configured) is the server-side interface Liberty Tools uses. See `liberty-administration` CODEBASE-GUIDE for the `restConnector` architecture.
+1. **Language Server (LemMinX)**: Liberty Tools embeds a Liberty-specific extension for the XML Language Server (LemMinX). This extension provides `server.xml` autocompletion, validation, and hover documentation by consuming the generated schema XSD from the Liberty install. See `liberty-config-reference` CODEBASE-GUIDE §2.3 for schema generation.
+
+2. **Dev mode integration**: Liberty Tools triggers the Gradle/Maven `libertyDev` task and monitors its output. The IDE shows application deployment status and test results inline, with restart/stop controls for the dev mode process.
+
+3. **JMX bridge**: Liberty Tools communicates with the running Liberty server via the `restConnector-2.0` REST/JMX interface to provide application state (started/failed) and log streaming to the IDE. The `restConnector` must be configured for this to work; Liberty Tools generates a temporary admin user config for dev mode if one isn't present.
+
+**Liberty Language Server configuration scanning**: LemMinX + Liberty extension scans the workspace for `server.xml` files and discovers their associated Liberty install (from Maven/Gradle plugin config). It fetches the feature-specific schema XSD from that install's `configUtil schemaGen` output and registers it for that `server.xml`. This is why opening a `server.xml` in a project without the Liberty Maven/Gradle plugin configured won't provide full autocompletion.
 
 ---
 
@@ -139,7 +158,7 @@ The `features.sh` script in the base image calls `featureUtility installServerFe
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `BootstrapConfig` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/internal/BootstrapConfig.java` | Path variable resolution; the install layout authoritative source |
+| `BootstrapConfig` | `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/BootstrapConfig.java` | Path variable resolution; the install layout authoritative source |
 | `WsLocationAdmin` | `com.ibm.ws.kernel.service/src/com/ibm/wsspi/kernel/service/location/WsLocationAdmin.java` | SPI for resolving server paths from components at runtime |
 
 ---

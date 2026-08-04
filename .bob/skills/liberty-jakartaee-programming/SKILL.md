@@ -769,10 +769,38 @@ public Response upload(MultipartBody parts) {
 - Batch 2.1: `@JobDefinition` annotation
 
 ### Jakarta EE 10 → Jakarta EE 11
-- CDI 4.1: build-time scanning improvements
-- Faces 4.1: new `@ClientWindowScoped`
-- Concurrency 3.1: `@Asynchronous` replaces EJB `@Asynchronous`
-- Servlet 6.1: improved connection handling
+
+**Minimum Java SE: 17 (Java 21 recommended)**
+
+| Area | Jakarta EE 10 | Jakarta EE 11 | Key Change |
+|---|---|---|---|
+| CDI | 4.0 | 4.1 | **Build-compatible extensions** (`BuildCompatibleExtension`) as an alternative to portable extensions; no reflection required at build time |
+| Faces | 4.0 | 4.1 | New `@ClientWindowScoped`; enhanced flow handling |
+| Persistence | 3.1 | 3.2 | Enhanced criteria API; `@IdClass` improvements; `EntityGraph` API enhancements |
+| Servlet | 6.0 | 6.1 | Connection `reset()` method; improved trailer headers handling |
+| Expression Language | 5.0 | 6.0 | New string template expressions |
+| Concurrency | 3.0 | 3.1 | Asynchronous method support; `@Asynchronous` (replaces EJB async) |
+| Security | 3.0 | 4.0 | Multi-factor authentication support (`@AutoApplySession`) |
+| Authorization | 2.1 | 3.0 | Simplified policy management |
+
+**`SecurityManager` removed**: Jakarta EE 11 requires runtimes to no longer support `java.lang.SecurityManager`. Code that creates a `SecurityManager` will fail. Liberty disables `SecurityManager` enforcement for EE 11 deployments.
+
+**CDI Build-Compatible Extensions** (`cdi-4.1`):
+```java
+public class MyExtension implements BuildCompatibleExtension {
+    @Discovery
+    public void discover(ScannedClasses api) {
+        api.add(MyBean.class.getName());
+    }
+}
+```
+Registered via `META-INF/services/jakarta.enterprise.inject.build.compatible.spi.BuildCompatibleExtension`.
+
+**Key Liberty features:**
+- `cdi-4.1` — CDI 4.1 (build-compatible extensions)
+- `faces-4.1` — Jakarta Faces 4.1 (requires `cdi-4.1`, `expressionLanguage-6.0`, `servlet-6.1`)
+- `servlet-6.1` — Servlet 6.1
+- `expressionLanguage-6.0` — EL 6.0
 
 ---
 

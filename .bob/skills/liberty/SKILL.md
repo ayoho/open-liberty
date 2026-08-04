@@ -115,9 +115,11 @@ Both run the same OSGi kernel and features. Open Liberty is free and open source
 ### What MicroProfile and Jakarta EE versions does Liberty support?
 
 Liberty supports every major version:
-- **MicroProfile**: 1.0 through 7.x (use `microProfile-7.0` umbrella or individual features)
+- **MicroProfile**: 1.0 through 7.x (use `microProfile-7.0` or `microProfile-7.1` umbrella or individual features). Both 7.0 and 7.1 extend Jakarta EE 10.
 - **Jakarta EE**: 8 (`javaee-8.0` / `javax.*`), 9.1, 10.0, 11.0 (`jakarta.*`)
 - Multiple versions can coexist in the same Liberty install (different servers use different feature versions)
+
+> **Jakarta EE 11** requires **Java 17+** (Java 21 recommended). It includes `cdi-4.1`, `servlet-6.1`, `faces-4.1`, `expressionLanguage-6.0`, and `persistence-3.2`. The `SecurityManager` is not supported under EE 11.
 
 ### What Java versions does Liberty support?
 

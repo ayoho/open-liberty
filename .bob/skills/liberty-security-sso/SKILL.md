@@ -156,12 +156,47 @@ For `databaseStore`, Liberty requires the database tables to be pre-created. SQL
 | `scope` | `openid profile` | Space-separated scopes to request |
 | `mapIdentityToRegistryUser` | `false` | Look up user in the local registry after authentication |
 | `inboundPropagation` | `none` | `none` / `required` / `supported` — validate incoming bearer tokens |
+| `tokenEndpointAuthMethod` | `post` | `basic` / `post` / `private_key_jwt` — how to authenticate to the token endpoint |
+| `tokenEndpointAuthSigningAlgorithm` | `RS256` | Signing algorithm for `private_key_jwt`: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512` |
+| `keyAliasName` | — | Alias for the private key used when `tokenEndpointAuthMethod="private_key_jwt"` |
+| `tokenOrderToFetchCallerClaims` | `IDToken` | Order to fetch caller name/group claims: `AccessToken IDToken UserInfo` or `IDToken` |
+| `jwtAccessTokenRemoteValidation` | `none` | `allow` / `none` / `require` — whether inbound JWT access tokens are validated locally or remotely |
+| `includeIdTokenInSubject` | `true` | Include the ID token in the JAAS Subject |
+| `isClientSideRedirectSupported` | `true` | Use JavaScript redirect; set `false` if JavaScript is unavailable |
+| `issuerIdentifier` | — | Accepted issuer; comma-separated list; case-sensitive HTTPS URL |
+| `initialStateCacheCapacity` | `3000` | Initial capacity of the OIDC state cache (grows as needed) |
 
 **Redirect URI pattern:** `https://<redirectToRPHostAndPort>/oidcclient/redirect/<id>`
+
+### Client Authentication Methods
+
+| `tokenEndpointAuthMethod` | Description |
+|---|---|
+| `post` (default) | Client credentials included in the request body |
+| `basic` | HTTP Basic authentication to the token endpoint |
+| `private_key_jwt` | JWT signed with the client's private key (RFC 7523); requires `keyAliasName` and the public key accessible in the truststore |
+
+**`private_key_jwt` example:**
+```xml
+<openidConnectClient id="myOidcClient"
+    clientId="myClientId"
+    discoveryEndpointUrl="https://idp.example.com/.well-known/openid-configuration"
+    tokenEndpointAuthMethod="private_key_jwt"
+    tokenEndpointAuthSigningAlgorithm="RS256"
+    keyAliasName="myClientKey"
+    sslRef="mySSLConfig"/>
+```
+
+The corresponding public key must be registered at the OP. No `clientSecret` is needed when using `private_key_jwt`.
 
 ### Token Propagation to Back-End Services
 
 When `inboundPropagation="supported"`, Liberty accepts `Authorization: Bearer <token>` on incoming requests and validates the token against the configured OP. This enables microservice-to-microservice token forwarding.
+
+Control local vs remote JWT validation:
+- `jwtAccessTokenRemoteValidation="none"` (default) — parse and validate locally; do not fall back to remote.
+- `jwtAccessTokenRemoteValidation="allow"` — try local first; fall back to remote if local validation fails.
+- `jwtAccessTokenRemoteValidation="require"` — always validate remotely (ignores local parsing).
 
 ---
 
