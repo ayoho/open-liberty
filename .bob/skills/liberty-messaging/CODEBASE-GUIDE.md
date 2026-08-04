@@ -28,6 +28,10 @@ Liberty's messaging domain solves the problem of **how to provide JMS-based asyn
 
 **What it is**: The embedded messaging engine is a self-contained JMS provider that runs in the same JVM as Liberty. It is activated by the `wasJmsServer-1.0` feature. The engine consists of: a **message store** (`com.ibm.ws.messaging.msgstore`) that persists messages to the file system (FILESTORE) or a JDBC data source; a **communication layer** (`com.ibm.ws.messaging.comms.server`) that accepts remote JMS connections from Liberty clients and other WAS servers; and the **runtime** (`com.ibm.ws.messaging.runtime`) that implements the SIBus core, including destination management, subscription management, and selector evaluation.
 
+**Destination types**: The engine supports three destination types: (1) **Queue** — point-to-point, messages consumed once; (2) **Topic Space** — publish/subscribe, supports durable subscriptions; (3) **Exception Destination** — receives undeliverable messages (dead letter queue equivalent). Durable subscriptions survive server restart only when the message store uses JDBC persistence (`<jdbcStore dataSourceRef="...">`).
+
+**Message selector evaluation**: The SIBus core evaluates JMS message selectors (`MessageConsumer.setMessageSelector()`) at the engine level, before message delivery. This avoids delivering non-matching messages to consumers. Selector syntax is a subset of SQL-92.
+
 **Why embedded**: Applications in a cluster or microservices environment that need asynchronous messaging without an external broker can use the embedded engine without additional infrastructure. The trade-off is that the engine's persistence is local to one server and scaling requires explicit messaging network configuration.
 
 **Key entry points**:
@@ -45,6 +49,13 @@ Liberty's messaging domain solves the problem of **how to provide JMS-based asyn
 - `com.ibm.ws.messaging.jms.common/src/com/ibm/ws/sib/ra/impl/SibRaConnectionFactory.java` — JCA `ConnectionFactory` for the embedded engine; delegates to `SICoreConnectionFactory`.
 - `com.ibm.ws.messaging.jms.2.0.cdi/src/...` — CDI-scoped injection support for JMS 2.0 `@Inject JMSContext`.
 - `com.ibm.ws.messaging.jms.common/src/com/ibm/ws/sib/api/jms/service/JmsServiceFacade.java` — DS component bridging JMS spec APIs to the underlying SIBus core.
+
+### 2.4 JMS 2.0 Simplified API and CDI Injection
+
+**What it is**: JMS 2.0 introduced the simplified API: `JMSContext` (combining `Connection` + `Session`), `JMSProducer`, and `JMSConsumer`. In Liberty, these are backed by CDI-managed scoped objects. `@Inject JMSContext` produces a `@RequestScoped` JMSContext — it is automatically started at injection, used for the request, and closed at the end of the request scope (handled by CDI's `@PreDestroy` callback). This eliminates the boilerplate of `connection.createSession().createProducer()...` that JMS 1.1 required.
+
+**Key entry point**:
+- `com.ibm.ws.messaging.jms.2.0.cdi/src/com/ibm/ws/jms20/cdi/JMSProducer20CDI.java` — CDI producer for JMSContext injection; manages scope lifecycle.
 
 ### 2.3 Message-Driven Bean (MDB) Activation
 
@@ -146,11 +157,17 @@ A: The embedded engine is a single-server message store. Messages are persisted 
 **Q: Why does Liberty use the JCA infrastructure for JMS connection pooling instead of a dedicated JMS pool?**  
 A: Reusing JCA means JMS connections automatically participate in XA transactions when a JTA transaction is active. The alternative — a JMS-specific pool — would require duplicating XA coordination logic. Using JCA also ensures JMS follows the same `minPoolSize`/`maxPoolSize`/`connectionTimeout` configuration model as JDBC data sources.
 
-**Q: What is the `jmsActivationSpec maxEndpoints` attribute and when does it matter?**  
+**Q: What is the `jmsActivationSpec maxEndpoints` attribute and when does it matter?**
 A: `maxEndpoints` limits the number of concurrent MDB instances processing messages simultaneously — effectively the MDB's thread pool size. Setting it too low creates a processing bottleneck; setting it too high creates contention on the message store or downstream resources. Tune by monitoring message queue depth and MDB processing latency.
 
-**Q: Why does MDB `@TransactionAttribute(REQUIRED)` consume a JTA transaction per message?**  
+**Q: Why does MDB `@TransactionAttribute(REQUIRED)` consume a JTA transaction per message?**
 A: MDBs use CMT by default, and `REQUIRED` is the default transaction attribute. Each `onMessage()` call is wrapped in a JTA transaction so that message acknowledgement and any downstream work (JDBC writes, EJB calls) are atomic. If the transaction rolls back, the message is redelivered. This is the correct default for at-least-once delivery; for high-throughput applications that don't need atomic delivery, use `NOT_SUPPORTED` with `SESSION_TRANSACTED` acknowledgement.
+
+**Q: What is the `maxQueueDepth` attribute on `<messagingEngine><queue>` and what happens when it is reached?**
+A: `maxQueueDepth` is the maximum number of messages the queue will hold before blocking producers. When the limit is reached, `JMSProducer.send()` blocks (or throws `JMSException` with a queue full reason code if `producerFlowControl="false"`). The default is `250000`. Set it based on estimated peak backlog and available storage: each message in FILESTORE occupies disk space proportional to its size.
+
+**Q: How does message ordering work with multiple MDB instances?**
+A: The SIBus engine delivers messages to consumers in strict queue order per destination. With `maxEndpoints > 1`, multiple MDB instances process messages concurrently — this means messages are started in order but may complete (and thus have their downstream effects applied) out of order if one MDB instance is slower. For strict end-to-end ordering, use `maxEndpoints="1"`. For higher throughput with relaxed ordering, use `maxEndpoints > 1`.
 
 ---
 

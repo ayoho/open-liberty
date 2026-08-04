@@ -31,6 +31,8 @@ Liberty's migration domain addresses two distinct migration paths: (1) **WebSphe
 
 **Compatibility windows via `ibm.tolerates`**: Liberty uses the `ibm.tolerates` feature manifest header to allow multiple versions of a feature to coexist in a resolution window. This means applications can move from `servlet-4.0` to `servlet-5.0` by changing one feature line without any application code changes (assuming no private API use). See the `liberty-architecture` CODEBASE-GUIDE §7 for the resolution algorithm.
 
+**No-configuration-migration goal**: A core Liberty design principle is that new feature versions should require zero `server.xml` changes when upgrading — only the feature name changes. All new attributes get sensible defaults via metatype; existing attributes keep the same semantics. This is enforced by Liberty's compatibility test suite.
+
 **Feature aliasing and `versionless` features**: The `jakartaee-11.0` platform feature resolves a complete, compatible set of Jakarta EE features. Applications simply enable `jakartaee-11.0` and Liberty selects appropriate feature versions. See `liberty-feature-reference` CODEBASE-GUIDE §4 for versionless resolution details.
 
 **Key entry point**:
@@ -72,6 +74,23 @@ Applications must choose a side. Liberty does not provide automatic bytecode tra
 | JDBC provider → data source | `<jdbcDriver libraryRef=.../>` nested in `<dataSource>` |
 
 Liberty's `server.xml` is a complete, self-contained configuration; there is no equivalent to WAS traditional's `was.policy`, `admin.config`, or cell-level administration.
+
+### 2.5 EJB Migration Considerations
+
+**Stateful EJBs**: Stateful session beans with passivation are broadly compatible. WAS traditional clusters with Stateful Session Bean (SFSB) replication have no direct equivalent in Liberty. Replace with a session store (CDI `@SessionScoped` bean with HTTP session replication via `sessionDatabase-1.0` or JCache).
+
+**EJB 2.x Entity Beans**: Liberty does not support EJB 2.x entity beans (`EntityBean` interface). Migrate to JPA entities. This is the most common migration blocker for legacy WAS applications.
+
+**WAS-specific EJB deployment descriptors**: `ibm-ejb-jar-bnd.xml`, `ibm-ejb-jar-ext.xml` are supported by Liberty with the same syntax for backward compatibility. However, WAS-specific extensions not in the Jakarta EE spec (e.g., extended WAS activity sessions, compensating transactions) are not supported.
+
+### 2.6 Application Class Loading Migration
+
+WAS traditional uses a complex class loader hierarchy (cell, node, application, web module). Liberty uses a simpler model:
+- **Application class loader**: loads all application JARs (EAR/WAR/EJB)
+- **Web module class loader**: optionally isolated from the application class loader
+- **Shared library class loader**: explicit `<sharedLibrary>` for common JARs
+
+The default in both WAS trad and Liberty is parent-first delegation. If a WAS application used `parent-last` (isolated) classloading, set `<application><classloader delegation="parentLast"/></application>` in Liberty.
 
 ---
 
@@ -118,8 +137,14 @@ There is no migration-specific configuration element in Liberty. Migration invol
 
 ## 5. Design Decisions & Gotchas
 
-**Q: Why didn't Liberty provide automatic javax.* → jakarta.* translation at runtime?**  
+**Q: Why didn't Liberty provide automatic javax.* → jakarta.* translation at runtime?**
 A: Runtime bytecode transformation on every class load (as some frameworks attempted) introduces latency, is error-prone for reflective access and serialized objects, and cannot handle descriptor files (persistence.xml, web.xml). The specification community decided pre-deployment transformation is the correct model. Liberty provides the distinct `jakartaee-9.1+` feature families and lets users choose their namespace intentionally.
+
+**Q: What is the recommended migration path from WAS traditional LTPA SSO to Liberty?**
+A: WAS traditional and Liberty share the same LTPA token format (`LTPA2`) when configured with the same LTPA keys. This means a phased migration is possible: configure both servers with the same LTPA key file (`<ltpa keysFileName="ltpa.keys" keysPassword="..."/>`). Users authenticated on WAS trad can have their LTPA cookie validated by Liberty and vice versa, enabling a gradual traffic shift with no re-login.
+
+**Q: How do WAS traditional `WorkManager` and `AsyncBeans` map to Liberty?**
+A: Liberty does not have `WorkManager` or `AsyncBeans` (WAS proprietary async execution). Migrate to: Jakarta EE `@Asynchronous` EJB for managed async execution; `ManagedExecutorService` (`java:comp/DefaultManagedExecutorService`) for programmatic async tasks; or MicroProfile Fault Tolerance `@Asynchronous` for CDI beans. All three are Jakarta Concurrency standard APIs.
 
 **Q: Can a Liberty server run both `javax.*` and `jakarta.*` applications simultaneously?**  
 A: No. Liberty's feature resolution enforces that only one version of each spec is active per server. You cannot enable both `servlet-4.0` (javax.*) and `servlet-5.0` (jakarta.*) simultaneously — the singleton constraint will reject the configuration. To serve both types of applications, use two Liberty server instances.

@@ -62,6 +62,29 @@ This design enables the "config-by-exception" principle: components ship default
 - `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/ConfigEvaluator.java` — applies merge rules and variable resolution during the evaluation phase.
 - `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/ConfigElement.java` / `FactoryElement.java` / `SingletonElement.java` — the three element types with different merge semantics.
 
+### 2.5 Bootstrap Properties
+
+**What it is**: `bootstrap.properties` is the first configuration file read by Liberty — before `server.xml`, before the OSGi framework starts. It configures: JVM class loader paths, initial port overrides, `com.ibm.ws.logging.trace.specification` (trace level before `<logging>` is processed), and `WLP_OUTPUT_DIR` equivalent path overrides. Values in `bootstrap.properties` take priority over all other sources.
+
+**Why a separate file**: Some settings must be known before `server.xml` can be parsed — for example, the logging level affects what trace is emitted during server startup itself, which happens before Config Admin is active. `bootstrap.properties` provides a chicken-and-egg escape: configure the infrastructure before Config Admin is available.
+
+**Key entry point**:
+- `com.ibm.ws.kernel.boot.core/src/com/ibm/ws/kernel/boot/internal/BootstrapConfig.java` — reads `bootstrap.properties` at JVM startup; these values are available to the config system from the first line of Liberty code.
+
+### 2.6 `jvm.options` and `server.env`
+
+**`jvm.options`**: One JVM argument per line (e.g., `-Xmx512m`, `-Djava.net.preferIPv4Stack=true`). Applied to the Liberty JVM at start. Multiple files are supported via the `jvm.options.d/` directory.
+
+**`server.env`**: Environment variable exports applied to the Liberty server process. Variables set here are available to Liberty config as `${env.VAR}`. Useful for setting `JAVA_HOME`, `LOG_DIR`, or sensitive environment-specific values that should not be in `server.xml`. Values in `server.env` take priority over the OS environment for Liberty-specific variables.
+
+**Variable resolution priority** (lowest to highest):
+1. `server.xml` `<variable defaultValue="..."/>`
+2. `server.xml` `<variable value="..."/>`
+3. `server.env` exports
+4. Java system properties (`-D` in `jvm.options`)
+5. OS environment variables (`${env.VAR}`)
+6. Bootstrap properties
+
 ---
 
 ## 3. Configuration Model

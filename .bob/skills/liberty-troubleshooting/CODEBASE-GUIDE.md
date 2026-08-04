@@ -61,6 +61,27 @@ Liberty's troubleshooting domain addresses the question: **when something goes w
 
 See `liberty-monitoring-observability` CODEBASE-GUIDE §2.4 for the probe architecture behind request timing.
 
+### 2.5 Introspection — Server Dump Content
+
+**What it is**: When `server dump` is run, each DS component that implements the `Introspectable` interface contributes its internal state to the dump archive. For example, `FeatureManager` introspects the list of installed features and their state; `DataSourceService` introspects active connection count; `LTPAKeyService` introspects key age. The introspection output appears as `.txt` files inside the dump ZIP under `dump_<timestamp>/introspection/`.
+
+**Why introspection**: Support engineers analysing a dump need more than logs and stack traces — they need to know the configuration state at the time of failure. Introspection captures in-memory state that would otherwise be inaccessible post-mortem. Adding `Introspectable` to a DS component is the recommended way to make any new component diagnosable.
+
+### 2.6 Binary Log Viewer (HPEL logViewer)
+
+**What it is**: When `hpelLogging-1.0` is active, Liberty writes binary log records instead of text. The `bin/logViewer` command reads the binary repository with powerful filtering:
+
+```bash
+# Show all ERROR and above from the last 30 minutes
+bin/logViewer -minLevel SEVERE -minTime "2024-01-15 09:30:00"
+# Show only security-related trace entries
+bin/logViewer -includeExtensions loggerName=com.ibm.ws.security
+# Export as plain text
+bin/logViewer -outLog output.log
+```
+
+HPEL binary records are orders of magnitude faster to write than text (no string formatting), making it suitable for high-throughput production servers.
+
 ---
 
 ## 3. Troubleshooting Decision Tree
@@ -97,15 +118,29 @@ Problem: Unexpected server behaviour or error
 
 ## 4. Key Entry Points
 
+### 4.1 Logging and FFDC
+
 | Class | Path | What to look for |
 |-------|------|------------------|
 | `BaseFFDCService` | `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/BaseFFDCService.java` | FFDC incident creation; `createIncident()` |
 | `FFDCData` | `com.ibm.ws.logging/src/com/ibm/ws/logging/data/FFDCData.java` | Data structure assembled for each FFDC record |
 | `Jsr47TraceService` | `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/Jsr47TraceService.java` | JUL bridge; trace spec filtering; log routing |
 | `LogProviderImpl` | `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/LogProviderImpl.java` | Root logging provider; file and console handler setup |
+| `IncidentLogger` | `com.ibm.ws.logging/src/com/ibm/ws/logging/internal/impl/IncidentLogger.java` | Writes FFDC file to `logs/ffdc/`; controls file naming and format |
+
+### 4.2 Request Timing
+
+| Class | Path | What to look for |
+|-------|------|------------------|
 | `SlowRequestProbeExtension` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/SlowRequestProbeExtension.java` | Slow request detection |
 | `HungRequestProbeExtension` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/HungRequestProbeExtension.java` | Hung request detection + thread dump |
+
+### 4.3 Server Dump and Introspection
+
+| Class | Path | What to look for |
+|-------|------|------------------|
 | `ServerLauncher` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` | `server dump` and `server javadump` commands |
+| `Introspectable` (interface) | `com.ibm.ws.kernel.service/src/com/ibm/wsspi/kernel/service/utils/ServerQuiesceListener.java` | Interface DS components implement to contribute to server dumps |
 
 ---
 
@@ -114,14 +149,34 @@ Problem: Unexpected server behaviour or error
 **Q: Why are FFDC files in `logs/ffdc/` not rotated automatically?**  
 A: FFDC files are permanent diagnostic records — deleting them automatically would destroy evidence of intermittent production issues. Operators are expected to clean up resolved incidents manually or by policy. In containers, `LOG_DIR` can point to a persistent volume so FFDC survives pod restarts.
 
-**Q: Why do trace logs grow large so quickly?**  
+**Q: Why do trace logs grow large so quickly?**
 A: `=all` trace on a busy subsystem (e.g., `com.ibm.ws.security.*=all` during active authentication) can write thousands of lines per second. The `maxFileSize` and `maxFiles` attributes on `<logging>` create a rolling log file. Always set a size limit when enabling verbose trace: `<logging traceFileName="trace.log" maxFileSize="50" maxFiles="3"/>`.
+
+**Q: What trace specifications are most useful for the most common problem types?**
+```
+Connection pool exhaustion: com.ibm.ws.rsadapter.*=all:com.ibm.ejs.j2c.*=all
+Security/authentication failures: com.ibm.ws.security.*=all
+Feature load failures: com.ibm.ws.kernel.feature.*=all
+Application deployment failures: com.ibm.ws.app.manager.*=all
+OIDC/OAuth token issues: com.ibm.ws.security.openidconnect.*=all:com.ibm.ws.security.oauth.*=all
+JTA transaction failures: com.ibm.tx.*=all:com.ibm.ws.transaction.*=all
+```
+Each trace spec causes the matching logger namespace and all children to emit at the `ALL` level. Using `:` separates multiple specs. The leftmost winning match applies.
+
+**Q: How do you read an FFDC file and what does each section mean?**
+A: An FFDC file has these sections: (1) **Header**: timestamp, sequence number, exception class. (2) **Stack trace**: the full exception stack from the point where `FFDCFilter.processException()` was called. (3) **Introspection**: diagnostic data from the component that caught the exception (e.g., connection pool state for a `ConnectionWaitTimeoutException`). (4) **JVM state**: class loader hierarchy, system properties snapshot. Start from the stack trace root cause (last "Caused by:") rather than the top-level exception, which is usually a wrapper.
 
 **Q: What is the difference between `server dump` and `server javadump`?**  
 A: `server javadump` only triggers a JVM thread dump (javacore.*.txt). `server dump` triggers a full Liberty dump: thread dump, heap dump (if `--include=heap`), system dump (if `--include=system`), FFDC, logs, and introspection data from Liberty components. Use `server javadump` for quick thread state capture; use `server dump --include=all` for comprehensive IBM support artifacts.
 
-**Q: Why does Liberty log `CWWKZ0013E` when a datasource fails, even though my application didn't explicitly request a connection?**  
+**Q: Why does Liberty log `CWWKZ0013E` when a datasource fails, even though my application didn't explicitly request a connection?**
 A: Liberty's App Manager verifies datasources referenced by application deployment descriptors at deployment time. A failed datasource reference fails the application startup. Check `logs/ffdc/` for the DSRA exception code to identify the database connectivity root cause.
+
+**Q: What is the `server pause` and `server resume` command used for?**
+A: `server pause` quiesces a specific HTTP endpoint or application: it stops accepting new requests but allows in-flight requests to complete. This is useful for rolling upgrades in traditional Liberty clusters — pause traffic, deploy new application version, resume. In Kubernetes, the equivalent is updating the pod's readiness probe to return `DOWN`, letting the load balancer drain traffic before the pod is replaced.
+
+**Q: How does the `server dump --include=heap` option work and when should it be used?**
+A: `--include=heap` triggers a JVM heap dump (`.hprof` file) in addition to the standard dump artifacts. This is appropriate when diagnosing `OutOfMemoryError` or excessive GC. The heap dump can be several GB for production servers. Tools: IBM Memory Analyzer (IMAT), Eclipse MAT. Look for the largest object graphs and retained heap sizes. For `--include=system`, a full process dump (core file) is created — only needed for IBM support diagnosis of JVM crashes.
 
 ---
 

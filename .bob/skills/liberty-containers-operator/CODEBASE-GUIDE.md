@@ -25,7 +25,7 @@ Liberty's containers domain solves the problem of **how to run Liberty in contai
 
 ## 2. Core Architecture & Design Patterns
 
-### 2.1 Image Layering Strategy
+### 2.1 Image Layering Strategy and Multi-Stage Builds
 
 **What it is**: Liberty's `kernel-slim` + features pattern enables optimal Docker layer caching. The recommended layer order:
 
@@ -47,6 +47,23 @@ COPY --chown=1001:0 target/myapp.war /config/apps/
 **Why this order**: Docker layer caching invalidates all layers after the changed layer. Putting the application WAR last means a code change only rebuilds layer 4 — the smallest and most frequent change. Feature changes rebuild layer 3+, which is less frequent. Runtime changes are rarest of all.
 
 **The `features.sh` script** in the Liberty base image calls `featureUtility installServerFeatures --acceptLicense`, which reads `server.xml` and installs all declared features from Maven Central (or a configured mirror).
+
+**Multi-stage build pattern** for production images:
+```dockerfile
+# Stage 1: Compile application
+FROM maven:3.9-eclipse-temurin-21 AS builder
+COPY pom.xml .
+RUN mvn dependency:resolve
+COPY src/ src/
+RUN mvn package -q
+
+# Stage 2: Liberty runtime
+FROM icr.io/appcafe/open-liberty:kernel-slim-java21-openj9-ubi
+COPY --chown=1001:0 src/main/liberty/config/ /config/
+RUN features.sh && configure.sh
+COPY --from=builder --chown=1001:0 target/myapp.war /config/apps/
+```
+Multi-stage ensures the Maven toolchain is not in the production image.
 
 ### 2.2 Configuration Injection via `configDropins`
 
@@ -80,7 +97,7 @@ COPY --chown=1001:0 target/myapp.war /config/apps/
 
 ### 2.4 Liberty Operator (Kubernetes Operator)
 
-**What it is**: The Liberty Operator (`open-liberty-operator` on GitHub) provides Kubernetes custom resource definitions (CRDs) — `OpenLibertyApplication`, `OpenLibertyDump`, `OpenLibertyTrace`. It manages Liberty pod lifecycle, service exposure, persistent volume claims, and horizontal pod autoscaling as Kubernetes-native resources.
+**What it is**: The Liberty Operator (`open-liberty-operator` on GitHub) provides Kubernetes custom resource definitions (CRDs) — `OpenLibertyApplication`, `OpenLibertyDump`, `OpenLibertyTrace`. It manages Liberty pod lifecycle, service exposure, persistent volume claims, and horizontal pod autoscaling as Kubernetes-native resources. The operator is built on the **Operator SDK** (Go) and uses the operator-framework reconciliation loop pattern.
 
 **Key CRDs**:
 - `OpenLibertyApplication` — Equivalent to a `Deployment`/`Service`/`Route` combination, with Liberty-specific config (image streams, SSL route, storage for logs)
@@ -88,6 +105,14 @@ COPY --chown=1001:0 target/myapp.war /config/apps/
 - `OpenLibertyTrace` — Toggles Liberty trace specification on a running pod via JMX REST
 
 **Integration with Liberty internals**: The operator uses `restConnector-2.0` (JMX over REST) to trigger dumps and trace changes. This requires `<feature>restConnector-2.0</feature>` and appropriate credentials in the deployment.
+
+### 2.5 OCP / OpenShift Integration Patterns
+
+**Route and certificate management**: The operator automatically creates an `Route` with edge TLS termination when `expose.route.termination="edge"` is set on `OpenLibertyApplication`. The OpenShift certificate service provisions the TLS cert signed by the cluster CA, making in-cluster service communication trusted without manual cert distribution.
+
+**Service accounts and RBAC**: The Liberty pod's service account token can be used for OpenShift OAuth authentication via `OkdServiceLoginImpl` (see `liberty-security-sso` CODEBASE-GUIDE §2.10). The pod's projected service account token is presented as a bearer token to the application's endpoint, which the `socialLogin` feature validates against the cluster's OAuth server.
+
+**JWKS and key management in OCP**: When Liberty runs as an OIDC provider in OCP, the JWKS endpoint (`/oidc/endpoint/.../jwk`) must be reachable by relying parties within the cluster. Because OCP routes are HTTPS and the cluster CA is trusted, in-cluster JWKS fetches work without additional SSL configuration — as long as Liberty's route cert is issued by the cluster CA.
 
 ---
 
@@ -127,14 +152,20 @@ COPY --chown=1001:0 target/myapp.war /config/apps/
 
 ## 5. Design Decisions & Gotchas
 
-**Q: Why should `JAVA_HOME` not be set in the Dockerfile?**  
+**Q: Why should `JAVA_HOME` not be set in the Dockerfile?**
 A: The Liberty base image sets `JAVA_HOME` automatically based on the Java SDK included in the image tag (e.g., `java21-openj9`). Overriding it in the Dockerfile can cause the Liberty JVM to use a different Java than intended. Use `jvm.options` for JVM tuning (heap size, GC policy) rather than `JAVA_HOME`.
 
 **Q: Why does `/health/ready` return `DOWN` when an application fails to start?**  
 A: Liberty's `AppTracker` component monitors application deployment state and registers a built-in `HealthCheck` that returns `DOWN` while any configured application is in `STARTING` or `FAILED` state. This is implemented in `io.openliberty.microprofile.health.4.0.internal.AppTracker40Impl`. Kubernetes `readinessProbe` failure removes the pod from the service endpoint list, preventing traffic to a pod that hasn't finished deploying.
 
-**Q: How does Liberty handle `server.xml` changes when it's a read-only ConfigMap in Kubernetes?**  
+**Q: How does Liberty handle `server.xml` changes when it's a read-only ConfigMap in Kubernetes?**
 A: ConfigMaps mounted as volumes in Kubernetes are read-only files — Liberty can detect changes when Kubernetes rolls out a new ConfigMap version (mounted files get updated atomically). The File Monitor detects these updates and triggers a config re-parse. If `updateTrigger="mbean"` is set on `<config>`, Liberty only re-reads config when the `ConfigMBean` `refreshConfiguration()` operation is invoked — useful for controlled config updates.
+
+**Q: Why does `configDropins/overrides/` work better than environment variables for complex configuration in Kubernetes?**
+A: Environment variables are limited to simple string values and cannot express nested XML structure (e.g., a `<dataSource>` with nested `<jdbcDriver>` and `<properties.db2.jcc>`). `configDropins/overrides/` accepts full XML fragments mounted from Kubernetes ConfigMaps or Secrets, allowing the operator or Helm chart to inject arbitrarily complex configuration. Environment variables remain useful for simple overrides (database hostname, port) that fit the `${env.VAR}` substitution pattern.
+
+**Q: What is the `WLP_OUTPUT_DIR` environment variable and why is it important in containers?**
+A: `WLP_OUTPUT_DIR` sets the parent directory for server output files: `workarea/`, `logs/`, and the server process lock file. In containers, if you want to persist logs across pod restarts, set `WLP_OUTPUT_DIR` to a PersistentVolumeClaim mount point. The default is `${wlp.install.dir}/usr/servers/<serverName>/` which is inside the container image and lost on pod restart.
 
 **Q: What is the `LOG_DIR` environment variable and how does it interact with Liberty?**  
 A: `LOG_DIR` sets where Liberty writes `messages.log`, `trace.log`, and `ffdc/`. In Kubernetes, setting `LOG_DIR` to a path backed by a PersistentVolumeClaim preserves logs across pod restarts. `WLP_OUTPUT_DIR` sets the parent of `server.output.dir` for workarea and server-specific output.

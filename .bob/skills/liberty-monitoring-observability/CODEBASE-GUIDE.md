@@ -30,6 +30,8 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 **What it is**: The Liberty monitor SPI allows components to instrument themselves using `@ProbeSite` annotations that define instrumentation injection points. The `MonitorManager` DS component uses bytecode injection (ASM) to insert probe calls at annotated method boundaries. Any bundle that registers a `Monitor` service receives callbacks for matching probe sites. This is how connection pool statistics, servlet request counts, and thread pool metrics are collected.
 
+**The probe lifecycle**: (1) At startup, `MonitorManager` discovers all `@ProbeSite`-annotated classes and records their injection points in a registry. (2) When a `Monitor` DS service is registered (e.g., `ConnectionPoolMonitor`), `MonitorManager` uses ASM to bytecode-inject the probe call at the designated method boundary in the target class. (3) At each probe call site, a null check guards the callback — zero overhead when no monitor is registered. (4) When the `Monitor` service is unregistered, the injection is not reversed (class is already loaded), but the callback is removed from the dispatch list.
+
 **Why bytecode instrumentation**: The component being instrumented (e.g., `PoolManager`, `ServletWrapper`) does not need to contain monitoring code. Monitoring is an optional concern — if no `Monitor` is registered, the instrumentation overhead is negligible (just a null check). This preserves the separation between production and monitoring concerns.
 
 **Key entry points**:
@@ -69,6 +71,26 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 ---
 
+### 2.5 MicroProfile Telemetry — OpenTelemetry Integration
+
+**What it is**: `io.openliberty.microprofile.telemetry.2.1.internal` bridges Liberty to the OpenTelemetry SDK. The feature enables automatic trace span creation for JAX-RS requests, JDBC calls, and messaging operations via OpenTelemetry's auto-instrumentation. Applications can also inject `OpenTelemetry`, `Tracer`, and `Meter` via CDI. The OTLP exporter configuration (`otel.exporter.otlp.endpoint`) is set via MicroProfile Config or environment variables.
+
+**Key design**: Liberty wraps the OpenTelemetry SDK as a CDI-injectable bean. The auto-instrumentation uses the same Liberty probe SPI probe sites to capture request boundaries. Metrics (counters, histograms) are bridged to the same Prometheus endpoint as MP Metrics.
+
+**Key entry point**:
+- `io.openliberty.microprofile.telemetry.2.1.internal/src/...` — `TelemetryExtension` CDI portable extension; activates span creation for CDI beans.
+
+### 2.6 Log Sources for External Collectors
+
+**What it is**: Liberty's `logstashCollector-1.0` feature and the `TraceSource` / `AccessLogSource` / `FFDCSource` / `MessageSource` infrastructure route Liberty log records to external log collector endpoints (Logstash, Kafka). Each source is a DS component that receives log events from the `LogProviderImpl` pipeline and serialises them as JSON.
+
+**Key entry points**:
+- `com.ibm.ws.logging/src/com/ibm/ws/logging/source/TraceSource.java` — Emits trace records to the collector pipeline.
+- `com.ibm.ws.logging/src/com/ibm/ws/logging/source/AccessLogSource.java` — Emits HTTP access log records; activated by `httpAccess` log format.
+- `com.ibm.ws.logging/src/com/ibm/ws/logging/source/FFDCSource.java` — Emits FFDC events to the collector pipeline.
+
+---
+
 ## 3. Configuration Model
 
 ```
@@ -92,6 +114,8 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 **`monitor filter`**: Comma-separated list of MBean domains to expose via JMX. Affects which `StatsFactory` groups are reported. When `mpMetrics-5.0` is active, all monitor statistics are also exposed at `/metrics` in Prometheus format.
 
 **JSON logging**: When `messageFormat="JSON"` is set, `LogProviderImpl` routes all log records through `JsonLogHandler`, which formats them as JSON objects suitable for log aggregation (Logstash, Splunk, Instana).
+
+**HPEL mode**: Replace `<logging>` with `<logging logProvider="hpel" logDirectory="${server.output.dir}/logs/hpel"/>`. The `logViewer` tool queries the binary log: `bin/logViewer -minTime "2024-01-15 10:00:00" -maxTime "2024-01-15 10:30:00" -includeExtensions loggerName=com.ibm.ws.security`.
 
 ---
 
@@ -131,6 +155,15 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 |-------|------|------------------|
 | `SlowRequestProbeExtension` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/SlowRequestProbeExtension.java` | Slow request detection; threshold evaluation |
 | `HungRequestProbeExtension` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/probeExtensionImpl/HungRequestProbeExtension.java` | Hung request detection; periodic thread dump |
+| `TimingContextManager` | `com.ibm.ws.request.timing/src/com/ibm/ws/request/timing/internal/TimingContextManager.java` | Per-request timing context; correlates nested JDBC/servlet probes within one HTTP request |
+
+### 4.5 Log Sources
+
+| Class | Path | What to look for |
+|-------|------|------------------|
+| `TraceSource` | `com.ibm.ws.logging/src/com/ibm/ws/logging/source/TraceSource.java` | Routes trace records to external collectors |
+| `AccessLogSource` | `com.ibm.ws.logging/src/com/ibm/ws/logging/source/AccessLogSource.java` | Routes HTTP access log records |
+| `FFDCSource` | `com.ibm.ws.logging/src/com/ibm/ws/logging/source/FFDCSource.java` | Routes FFDC events to collector pipeline |
 
 ---
 
@@ -143,9 +176,14 @@ Liberty's monitoring domain solves the problem of **how to expose runtime behavi
 
 ### 5.2 `StatsFactory` — Custom PMI Statistics
 
-**Interface**: `com.ibm.wsspi.pmi.factory.StatsFactory`  
-**Location**: `com.ibm.ws.monitor/src/com/ibm/wsspi/pmi/factory/StatsFactory.java`  
+**Interface**: `com.ibm.wsspi.pmi.factory.StatsFactory`
+**Location**: `com.ibm.ws.monitor/src/com/ibm/wsspi/pmi/factory/StatsFactory.java`
 **How to use**: Call `StatsFactory.createStatsInstance()` from a DS component to register a named statistics group. The group appears in JMX and is picked up by MP Metrics if `mpMetrics` is active.
+
+### 5.3 `IncidentForwarder` — Custom FFDC Enrichment
+
+**Interface**: Implement the FFDC incident forwarder SPI to add custom diagnostic data to FFDC reports for specific exception types. Registered as a DS `@Component(service = IncidentForwarder.class)`.
+**Why**: APM agents (Instana, Dynatrace) use this pattern to attach agent-specific diagnostic data to FFDC reports automatically whenever a monitored exception type is caught by Liberty's FFDC filter.
 
 ---
 
@@ -157,11 +195,20 @@ A: Bytecode injection via ASM is framework-agnostic and does not require applica
 **Q: Why does FFDC write a separate `.log` file per incident rather than appending to `messages.log`?**  
 A: FFDC files are designed for consumption by IBM support tools and APM agents. A separate file per incident has a unique timestamp-based name, is self-contained (no parsing of a shared log), and does not grow unboundedly. `messages.log` is optimized for human reading; FFDC files are optimized for programmatic analysis.
 
-**Q: Why does `requestTiming` use `sampleRate` rather than instrumenting every request?**  
+**Q: Why does `requestTiming` use `sampleRate` rather than instrumenting every request?**
 A: At high request rates (10,000+ req/s), evaluating timeout logic for every request adds measurable latency. `sampleRate="10"` means 1 in 10 requests is monitored. Setting `sampleRate="1"` (monitor every request) is appropriate for development but can affect performance in production. The probe extension only triggers the JVMTI stack dump on requests that actually exceed the threshold.
 
-**Q: Why is HPEL not the default logging format?**  
+**Q: Why is HPEL not the default logging format?**
 A: HPEL requires the `hpelLogging-1.0` feature. It produces binary output that requires `logViewer` to read — not human-readable by default. The plain-text `messages.log` is more accessible for first-line diagnostics. HPEL is recommended for high-throughput environments where binary logging is faster and the `logViewer` filtering capabilities are needed.
+
+**Q: Why does `messageFormat="JSON"` output to the console rather than a structured log file?**
+A: In container environments, the standard pattern is to write logs to stdout/stderr and let the container runtime (Docker, Kubernetes) capture them for forwarding to a log aggregator. `consoleLogLevel="INFO"` combined with `messageFormat="JSON"` produces Kubernetes-consumable JSON logs on stdout. The `trace.log` file is a separate rolling file for trace-level data not suitable for high-volume stdout.
+
+**Q: How does `monitor filter="ConnectionPool"` relate to MP Metrics?**
+A: The `monitor filter` attribute enables JMX MBean registration for the named subsystem's `StatsFactory` statistics group. When `mpMetrics-5.0` is also active, the `SRMetricRegistryAdapter` bridges all registered `StatsFactory` groups to Prometheus counters and gauges at `/metrics`. There is a single statistics collection; the filter controls JMX visibility; MP Metrics always gets everything from active `StatsFactory` groups.
+
+**Q: What is the `TimingContextManager` and how does it correlate nested probe calls?**
+A: `TimingContextManager` keeps a thread-local stack of active timing contexts. When an HTTP request starts (servlet probe fires), a root context is pushed. When a JDBC call within that request fires the JDBC probe, a child context is pushed as a sub-request. When the JDBC probe completes, the child is popped. This allows `requestTiming` to report the full timing tree: `HTTP request (4200ms) → JDBC query "SELECT..." (3950ms)`, pinpointing the slow sub-operation.
 
 ---
 

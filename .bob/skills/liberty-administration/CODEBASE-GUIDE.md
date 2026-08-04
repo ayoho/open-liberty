@@ -30,6 +30,12 @@ Liberty's administration domain solves the problem of **how to manage, inspect, 
 
 **Why REST instead of RMI**: RMI-based JMX requires firewall rules for dynamic port allocation and has no standard authentication integration. REST uses standard HTTPS (port 9443, already open for applications), Liberty's SSL configuration, and standard HTTP auth (basic auth or client certs). This makes remote JMX accessible through network environments that would block RMI.
 
+**REST API structure**: The JMX REST endpoint supports a RESTful CRUD-style API over MBeans:
+- `GET /IBMJMXConnectorREST/mbeans` — list all registered MBeans
+- `GET /IBMJMXConnectorREST/mbeans/<objectNameEncoded>/attributes/<attr>` — read attribute
+- `POST /IBMJMXConnectorREST/mbeans/<objectNameEncoded>/operations/<opName>` — invoke operation
+- `POST /IBMJMXConnectorREST/file/` — file transfer (for Liberty Operator dump retrieval)
+
 **Key entry points**:
 - `com.ibm.ws.jmx.connector.server.rest/src/com/ibm/ws/jmx/connector/server/rest/JMXRESTProxyServlet.java` — REST proxy servlet; routes JMX attribute/operation requests to the Liberty MBean server.
 - `com.ibm.ws.jmx/src/com/ibm/ws/jmx/PlatformMBeanService.java` — DS component exposing the platform MBean server to other Liberty bundles; Liberty's MBean server entry point.
@@ -56,6 +62,18 @@ Liberty's administration domain solves the problem of **how to manage, inspect, 
 **What it is**: The Admin Center (`adminCenter-1.0`) is a single-page web application that displays server configuration, application state, JVM metrics, and collective member information. It communicates exclusively via the `restConnector` REST API — it is a client of the same JMX-over-REST API that external tools use. The Admin Center UI files are packaged in the feature ESA.
 
 **Key note**: The Admin Center source is not in the Open Liberty GitHub repository; it is a closed-source IBM addition. Open Liberty includes the `adminCenter-1.0` feature but not its source.
+
+### 2.5 Collective Controller
+
+**What it is**: A Liberty collective is a set of Liberty servers managed by a central **collective controller** server. The collective uses `restConnector-2.0` to communicate with **collective member** servers. The controller aggregates MBean data from all members and exposes them through a federated MBean server. Admin Center connects to the collective controller to show a dashboard of all members' application states, metrics, and health.
+
+**Architecture**: Collective members register with the controller on startup using a `collectiveMember-1.0` feature that opens a persistent management connection. The controller maintains a registry of members and their MBean namespaces. For each member, the controller creates proxy MBeans in its own namespace (`member:<host>,<wlpInstallDir>,<serverName>/`) that forward operations to the member's local MBean server.
+
+**Key note**: Collective source lives in `com.ibm.ws.collective.controller.*` bundles; these are IBM-proprietary and not in the Open Liberty repository. The collective member-side feature activation (`collectiveMember-1.0`) is in the open-source repository.
+
+### 2.6 Server Scripting (`wsadmin` alternative)
+
+**What it is**: Liberty does not have a `wsadmin`-equivalent scripting tool. Instead, administration scripting uses: (1) the `restConnector` REST API directly via `curl` or `httpie`; (2) the Liberty Ansible collection; (3) the Liberty Maven/Gradle plugin with `jmx` tasks; or (4) the Kubernetes operator for declarative configuration. For ad-hoc MBean operations from scripts, the JMX REST API is the access pattern.
 
 ---
 
@@ -93,26 +111,49 @@ JMXConnector conn = JMXConnectorFactory.connect(
 
 ## 4. Key Entry Points
 
+### 4.1 JMX Infrastructure
+
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `JmxConnectorRestServlet` | `com.ibm.ws.jmx.connector.server.rest/src/com/ibm/ws/jmx/connector/server/rest/JmxConnectorRestServlet.java` | REST entry point; JMX operation routing |
-| `WsRuntimeMBeanServer` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/internal/WsRuntimeMBeanServer.java` | Liberty MBean server; extension of platform MBean server |
-| `ServerLauncher` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` | CLI server command dispatcher |
-| `ThreadPoolMXBean` | `com.ibm.ws.monitor/src/com/ibm/websphere/monitor/jmx/ThreadPoolMXBean.java` | Thread pool monitoring interface |
+| `JmxConnectorRestServlet` | `com.ibm.ws.jmx.connector.server.rest/src/com/ibm/ws/jmx/connector/server/rest/JmxConnectorRestServlet.java` | REST entry point; MBean operation routing; file transfer support |
+| `WsRuntimeMBeanServer` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/internal/WsRuntimeMBeanServer.java` | Liberty MBean server; extension of platform MBean server; adds Liberty-specific MBeans |
+| `PlatformMBeanService` | `com.ibm.ws.jmx/src/com/ibm/ws/jmx/PlatformMBeanService.java` | DS component; exposes the MBean server to other Liberty bundles |
+
+### 4.2 Server Lifecycle Commands
+
+| Class | Path | What to look for |
+|-------|------|------------------|
+| `ServerLauncher` | `com.ibm.ws.kernel.boot/src/com/ibm/ws/kernel/boot/ServerLauncher.java` | CLI command dispatcher; `serverStop()`, `serverStatus()`, `serverDump()` |
+
+### 4.3 MBeans
+
+| Class | Path | What to look for |
+|-------|------|------------------|
+| `ThreadPoolMXBean` | `com.ibm.ws.monitor/src/com/ibm/websphere/monitor/jmx/ThreadPoolMXBean.java` | Thread pool statistics: `activeThreads`, `poolSize` |
 | REST client library | `com.ibm.ws.jmx.connector.client.restConnector` | JMX connector JAR; include in client apps to connect to Liberty's JMX REST endpoint |
+| `ApplicationMBean` | Registered by App Manager at deploy time | `ApplicationMBean.start()` / `stop()` / `restart()` for application lifecycle via JMX |
 
 ---
 
 ## 5. Design Decisions & Gotchas
 
-**Q: Why does `restConnector` require the `ssl` feature?**  
+**Q: Why does `restConnector` require the `ssl` feature?**
 A: JMX operations expose sensitive server internals (configuration, secrets in MBean attributes, ability to invoke operations that change server state). Transmitting these over plain HTTP would allow eavesdropping and man-in-the-middle attacks. HTTPS is a hard requirement; there is no `httpConnector` equivalent of `restConnector`.
+
+**Q: Why can't MBean attributes be changed persistently via JMX?**
+A: JMX `setAttribute()` only changes the in-memory value of the MBean attribute — it does not write back to `server.xml`. The next server restart will revert to `server.xml` values. For persistent changes, modify `server.xml` directly or via `configDropins`. This is by design: the authoritative configuration source is always `server.xml`, not runtime state.
 
 **Q: What is the difference between `adminCenter-1.0` and the `restConnector-2.0` feature?**  
 A: `restConnector-2.0` provides the REST/JMX API backend. `adminCenter-1.0` provides the browser-based UI that consumes that API. They can be used independently — `restConnector` alone supports programmatic JMX access; `adminCenter` requires `restConnector` and adds the web console on top.
 
-**Q: Why does the `server status` command not connect via JMX by default?**  
+**Q: Why does the `server status` command not connect via JMX by default?**
 A: `server status` works by checking whether the server lock file (`workarea/.sLock`) is held by a running process. This is fast, reliable, and does not require SSL or authentication configuration. JMX connection is only required for operations that need actual server interaction (dump, pause, resume).
+
+**Q: How do you restart a single application without restarting Liberty?**
+A: Via JMX: invoke `ApplicationMBean.restart()` on the application's MBean (object name: `WebSphere:type=ApplicationManager,name=<appName>`). Via CLI on the server machine: run `server pause <serverName> --target=<appName>` followed by `server resume`. Via `server.xml`: add `<applicationMonitor pollingRate="0"/>` and modify the application archive in place — Liberty detects the change and reloads it.
+
+**Q: What is the `collective controller` use case and when is it needed?**
+A: The collective controller is for environments with 10+ Liberty server instances that need centralized monitoring and operations from a single Admin Center dashboard. For Kubernetes environments, the Liberty Operator provides a better alternative (declarative CRDs rather than a management overlay). The collective is the right choice for traditional (non-Kubernetes) Liberty clusters where the Admin Center dashboard is the primary management interface.
 
 ---
 

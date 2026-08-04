@@ -51,9 +51,62 @@ Liberty's z/OS domain solves the problem of **how to run Liberty in IBM's z/OS m
 
 **What it is**: z/OS SMF (System Management Facilities) is the standard mechanism for recording operational data on z/OS. Liberty can write SMF records for request completion, security events, and transaction boundaries. These records are read by enterprise performance analysis tools (IBM Decision Support for z/OS, RMF).
 
+**SMF record types used by Liberty**:
+- **SMF Type 120 Subtype 11** (Liberty Requesttrack): one record per completed HTTP request; includes elapsed time, URI, user ID, response code.
+- **SMF Type 82** (RACF security events): authentication and authorization decisions written by RACF itself when SAF calls are made.
+
+These records are written by native z/OS code invoked via the Angel Process; the Java application code and Liberty trace logs do not contain this data.
+
+### 2.5 z/OS Specific Operational Patterns
+
+**Operator console commands**: z/OS operator console supports `MODIFY <Liberty-jobname>,COMMAND='<server-command>'` to trigger Liberty operations (server dump, pause, trace change) without SSH access. This is the equivalent of `server dump` on distributed — it calls the same JMX MBean via the operator console interface.
+
+**JVM on z/OS (IBM J9 / OpenJ9)**: Liberty on z/OS always uses IBM J9/OpenJ9 JVM. This JVM supports z/OS-specific garbage collection policies (`-Xgcpolicy:optthruput` for throughput, `-Xgcpolicy:gencon` for low latency). IBM J9 on z/OS also supports JVM dump formats (javacore, heap dump in TDUMP format) analysed with IBM's `jdmpview` tool.
+
+**RACF profile naming for Liberty**: RACF resource profiles for Liberty follow the pattern `BBG.PROFILED.<serverName>.*` (for profile-based access control to Liberty resources) and `SERVER.<serverName>.<clusterId>` (for collective controller membership authorization). These are configured separately from Liberty's `server.xml` by the z/OS security administrator.
+
+### 2.6 z/OS Connect (API Gateway)
+
+**What it is**: `zosConnect-2.0` is a Liberty feature that exposes z/OS CICS transactions, IMS programs, and batch jobs as REST APIs. It is a z/OS-specific feature with source in IBM proprietary bundles (not in the Open Liberty repository). Liberty's role is to host the z/OS Connect feature alongside regular Jakarta EE applications.
+
+**Relevance**: When discussing Liberty on z/OS, `zosConnect` is often the primary use case. The API gateway pattern maps RESTful requests to CICS transaction channels (`MQRFH2` formatted messages) without requiring any Java code in the CICS region.
+
 ---
 
-## 3. Configuration Model
+## 3. z/OS Operational Architecture in Practice
+
+When Liberty runs on z/OS as an enterprise workload, the deployment pattern involves multiple components working together:
+
+```
+z/OS LPAR
+├── Angel Process (APF-authorized, C program)
+│   └── Accepts calls from Liberty JVM via cross-memory
+│
+├── Liberty JVM (Java process, non-APF)
+│   ├── SAFRegistry calls Angel → RACF authenticate/authorize
+│   ├── WLM calls Angel → Workload classification
+│   └── SMF writes → Angel → SMF subsystem
+│
+├── RACF Database
+│   └── Stores user IDs, passwords, resource profiles
+│
+└── WLM Policy
+    └── Service classes for Liberty transactions
+```
+
+The key principle: **all privileged z/OS operations go through the Angel Process**. The Liberty JVM itself holds no special privilege. This isolation limits blast radius if the JVM is compromised.
+
+**z/OS SAF authentication flow for HTTP requests**:
+1. HTTP request arrives with credentials (basic auth, form login, or LTPA cookie)
+2. Liberty `AuthenticationService` calls `ZosSAFRegistry.checkPassword(user, password)`
+3. `ZosSAFRegistry` makes Angel Process call: APF-authorized SAF `RACROUTE REQUEST=VERIFY` macro
+4. RACF verifies credentials against the RACF database; returns pass/fail + user attributes
+5. Liberty auth cache stores the result for `<authCache>` duration
+6. Liberty subject created with the user's RACF groups as security roles
+
+---
+
+## 4. Configuration Model
 
 ```xml
 <!-- z/OS SAF user registry -->
@@ -75,7 +128,7 @@ Liberty's z/OS domain solves the problem of **how to run Liberty in IBM's z/OS m
 
 ---
 
-## 4. Key Entry Points
+## 5. Key Entry Points
 
 | Component | Notes |
 |-----------|-------|
@@ -87,20 +140,26 @@ Liberty's z/OS domain solves the problem of **how to run Liberty in IBM's z/OS m
 
 ---
 
-## 5. Design Decisions & Gotchas
+## 6. Design Decisions & Gotchas
 
-**Q: Why does Liberty on z/OS require the Angel Process even though the JVM runs as a superuser equivalent?**  
+**Q: Why does Liberty on z/OS require the Angel Process even though the JVM runs as a superuser equivalent?**
 A: z/OS security is not UNIX-style UID 0. Even if a z/OS user ID has powerful attributes, RACF macro execution requires specific APF-authorized program environments that a JVM cannot hold. The Angel Process is a separately APF-authorized program specifically designed to be the security boundary — it validates that requests come from authorized Liberty server processes before executing privileged operations.
 
 **Q: Can Liberty on z/OS use LDAP instead of SAF/RACF?**  
 A: Yes. Liberty on z/OS has the same `<ldapRegistry>` support as distributed Liberty. SAF integration is an additional option for shops that want RACF to be the single source of truth for identity and authorization. Many z/OS Liberty deployments use LDAP for non-z/OS applications and SAF for z/OS-specific enterprise applications.
 
-**Q: What is the `wsSecurity-1.0` feature on z/OS?**  
+**Q: What is the `wsSecurity-1.0` feature on z/OS?**
 A: On z/OS, `wsSecurity-1.0` activates the WebSphere z/OS security infrastructure — this includes the Angel Process communication, not WS-Security (which is the SOAP message security specification). The name collision is a historical artifact. On distributed Liberty, `wsSecurity-1.0` refers to WS-Security for SOAP. On z/OS, `wsSecurity-1.0` is z/OS-specific infrastructure.
+
+**Q: Why is IBM J9/OpenJ9 the only supported JVM for Liberty on z/OS?**
+A: z/OS is a 64-bit EBCDIC environment with a unique memory architecture (multiple address spaces, 31-bit addressing for compatibility mode). IBM J9 is the only JVM engineered to run natively on z/OS with proper EBCDIC handling, z/OS storage management, and integration with z/OS diagnostic tools (TDUMP, javacore). HotSpot JVM has no z/OS port.
+
+**Q: How does the `zosSAF` user registry coexist with Liberty's built-in authentication cache?**
+A: The SAF registry's `authenticate()` call goes through the Angel Process every time — there is no caching at the SAF level. However, Liberty's `AuthenticationService` has its own authentication cache (backed by the same `JCacheAuthCache` or in-memory cache as non-z/OS deployments). After a successful SAF authentication, the subject is cached in Liberty's auth cache. Subsequent requests for the same user within the cache lifetime (`<authCache>`) do not make a SAF call. This is critical for performance because each SAF call is an RPC through the Angel Process.
 
 ---
 
-## 6. How to Update This Guide
+## 7. How to Update This Guide
 
 - **New z/OS capabilities**: If new z/OS-specific features are added (e.g., new SMF record types, new WLM integration), update §2.
 - **Source availability changes**: If z/OS bundles are open-sourced in the future, add specific class paths to §4.
@@ -112,7 +171,7 @@ A: On z/OS, `wsSecurity-1.0` activates the WebSphere z/OS security infrastructur
 
 ---
 
-## 7. Related Skills & Cross-References
+## 8. Related Skills & Cross-References
 
 | Skill | Why related |
 |-------|-------------|
