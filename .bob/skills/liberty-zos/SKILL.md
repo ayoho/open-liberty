@@ -445,3 +445,9 @@ When `ZOSWTOR` angel service is active, Liberty writes key lifecycle messages to
 | z/OS Connect interceptor creation | [twlp_zconnect_create_interceptor.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_zconnect_create_interceptor.dita) |
 | SAF authentication (WebSphere Liberty) | [twlp_sec_authenticating.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_sec_authenticating.dita) |
 | Pause/resume from z/OS console | [twlp_PauseResume_zosConsole.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_PauseResume_zosConsole.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

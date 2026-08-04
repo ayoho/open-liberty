@@ -480,3 +480,9 @@ Or enable the `Forwarded` and `X-Forwarded-*` header processing:
 | Distributed session caching | [distributed-session-caching.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/distributed-session-caching.adoc) |
 | Servlet 3.1 considerations (WebSphere Liberty) | [cwlp_servlet31_consid.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/cwlp_servlet31_consid.dita) |
 | WebSphere plugin config | [twlp_admin_conf_webserver_plugin.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_admin_conf_webserver_plugin.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

@@ -130,7 +130,7 @@ The full boot sequence is:
 | `ConfigAdminServiceFactory` | `com.ibm.ws.config/src/com/ibm/ws/config/admin/internal/ConfigAdminServiceFactory.java` | OSGi ServiceFactory for ConfigurationAdmin; manages the store of `ExtendedConfiguration` objects |
 | `ConfigurationAdminImpl` | `com.ibm.ws.config/src/com/ibm/ws/config/admin/internal/ConfigurationAdminImpl.java` | Per-bundle view of ConfigurationAdmin; delegates to `ConfigAdminServiceFactory` for actual storage |
 | `ExtendedConfiguration` | `com.ibm.ws.config/src/com/ibm/ws/config/admin/ExtendedConfiguration.java` | Liberty-extended `Configuration` object; adds `id`-based lookup on top of standard OSGi PID |
-| `MetaTypeRegistry` | `com.ibm.ws.config/src/com/ibm/ws/config/admin/internal/MetaTypeRegistry.java` | Merges metatype defaults with server.xml values; the "config-by-exception" logic lives here |
+| `MetaTypeRegistry` | `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/MetaTypeRegistry.java` | Merges metatype defaults with server.xml values; the "config-by-exception" logic lives here |
 
 ### 4.4 File Monitor
 

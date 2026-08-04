@@ -569,3 +569,9 @@ Beta features are marked `ibm:beta` visibility and must be enabled explicitly. T
 | Directory locations and properties | [directory-locations-properties.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/directory-locations-properties.adoc) |
 | Installation Manager install (WebSphere Liberty) | [twlp_ins_installation_is_cl.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_ins_installation_is_cl.dita) |
 | Installation Manager upgrade (WebSphere Liberty) | [twlp_ins_upgrade_is.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_ins_upgrade_is.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

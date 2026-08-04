@@ -709,3 +709,9 @@ Use `beforeAppStart` in those cases.
 | Liberty on AWS EKS | [twlp_on_aws_eks.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_on_aws_eks.dita) |
 | Creating a remote server with Docker | [t_creating_remote_server_docker.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/t_creating_remote_server_docker.dita) |
 | OCP system requirements | [in-r-sysreqs-ocp.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/in-r-sysreqs-ocp.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

@@ -648,3 +648,9 @@ WLP_USER_DIR=!USERPROFILE!\wlp-usr
 | Default port numbers | [default-port-numbers.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/default-port-numbers.adoc) |
 | `configUtil` command | [rwlp_command_configutil.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/rwlp_command_configutil.dita) |
 | Custom variables in server config | [twlp_admin_customvars.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_admin_customvars.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

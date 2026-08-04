@@ -593,3 +593,9 @@ Logstash events include Liberty-specific fields: `type`, `loglevel`, `module`, `
 | Performance tuning | [performance-tuning.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/performance-tuning.adoc) |
 | Thread pool tuning | [thread-pool-tuning.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/thread-pool-tuning.adoc) |
 | Application observability with EFK | [obs-t-applog-efk.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/obs-t-applog-efk.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

@@ -590,3 +590,9 @@ Key MicroProfile Config property namespaces (from [`microprofile-config-properti
 | MicroProfile version diffs — 6.0→6.1 | [mp-60-61-diff.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/diff/mp-60-61-diff.adoc) |
 | MicroProfile version diffs — 6.1→7.0 | [mp-61-70-diff.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/diff/mp-61-70-diff.adoc) |
 | MicroProfile version diffs — 7.0→7.1 | [mp-70-71-diff.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/diff/mp-70-71-diff.adoc) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

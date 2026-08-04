@@ -491,3 +491,9 @@ Or enable JDBC tracing at the data source level:
 | MBeans registration (WebSphere Liberty) | [rwlp_mbeans_registration.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/rwlp_mbeans_registration.dita) |
 | JMX routing (WebSphere Liberty) | [rwlp_jmx_routing.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/rwlp_jmx_routing.dita) |
 | Configuring JMX connection | [configuring-jmx-connection.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/configuring-jmx-connection.adoc) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

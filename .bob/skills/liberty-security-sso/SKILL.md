@@ -680,3 +680,9 @@ This prevents a user's SSO token (LTPA or JWT) from being reused after the user 
 | OIDC RSA / SHA config | [twlp_oidc_rsa_sha.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_oidc_rsa_sha.dita) |
 | OIDC custom forms | [rwlp_oidc_custom_forms.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/rwlp_oidc_custom_forms.dita) |
 | App client security | [cwlp_app_client_security.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/cwlp_app_client_security.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

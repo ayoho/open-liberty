@@ -419,3 +419,9 @@ This is the zero-migration architecture guarantee. The exceptions (security fixe
 | Migrating heritage APIs | [twlp_mig_heritage.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_mig_heritage.dita) |
 | Migrating JAX-RPC | [twlp_mig_jaxrpc.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_mig_jaxrpc.dita) |
 | Runnable JAR files | [runnable-jar-files.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/runnable-jar-files.adoc) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

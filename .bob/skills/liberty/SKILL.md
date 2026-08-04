@@ -169,3 +169,9 @@ Open Liberty (the open source foundation) is particularly strong for:
 | [modules/ROOT/pages/overview.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/overview.adoc) | Open Liberty public site overview |
 | [modules/reference/pages/feature/](https://github.com/OpenLiberty/docs/tree/vNext/modules/reference/pages/feature) | Feature reference pages |
 | [modules/reference/pages/command/](https://github.com/OpenLiberty/docs/tree/vNext/modules/reference/pages/command) | Command reference pages |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

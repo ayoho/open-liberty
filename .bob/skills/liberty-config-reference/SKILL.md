@@ -893,3 +893,9 @@ Encoded values are prefixed `{xor}` or `{aes}` and used directly in XML attribut
 | Datasource config (WebSphere Liberty) | [twlp_admin_ds.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_admin_ds.dita) |
 | JavaMail config (WebSphere Liberty) | [twlp_admin_javamail.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_admin_javamail.dita) |
 | Locate OSGi config (WebSphere Liberty) | [twlp_locate_osgi.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_locate_osgi.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

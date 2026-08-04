@@ -503,3 +503,9 @@ See [`liberty-kafka-connector-config-security.adoc`](https://github.com/OpenLibe
 | IBM MQ JMS client messages | [cwlp_msg_wmq.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/cwlp_msg_wmq.dita) |
 | Kafka connector channel properties | [liberty-kafka-connector-channel-properties.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/liberty-kafka-connector-channel-properties.adoc) |
 | Kafka connector security | [liberty-kafka-connector-config-security.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/liberty-kafka-connector-config-security.adoc) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

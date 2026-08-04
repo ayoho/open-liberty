@@ -495,3 +495,9 @@ The service runs as `LocalSystem` by default. The service name follows the patte
 | `featureUtility` commands | [featureUtility-commands.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/command/featureUtility-commands.adoc) |
 | Server start/stop commands (WebSphere Liberty) | [twlp_admin_startstopserver_cmd.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_admin_startstopserver_cmd.dita) |
 | Collective security | [tagt_wlp_collective_security.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/tagt_wlp_collective_security.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

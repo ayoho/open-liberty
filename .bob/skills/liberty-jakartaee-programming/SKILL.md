@@ -805,3 +805,9 @@ public Response upload(MultipartBody parts) {
 | Jakarta EE 9 feature updates | [jakarta-ee9-feature-updates.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/diff/jakarta-ee9-feature-updates.adoc) |
 | Jakarta EE 10 differences | [jakarta-ee10-diff.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/diff/jakarta-ee10-diff.adoc) |
 | Jakarta EE 11 differences | [jakarta-ee11-diff.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/reference/pages/diff/jakarta-ee11-diff.adoc) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

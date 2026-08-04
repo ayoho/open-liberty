@@ -471,3 +471,9 @@ Configure Kerberos authentication for DB2 and other supported databases:
 | Built-in Jakarta Data provider | [built-in-jakarta-data-provider.adoc](https://github.com/OpenLiberty/docs/blob/vNext/modules/ROOT/pages/built-in-jakarta-data-provider.adoc) |
 | Connection pool configuration (WebSphere Liberty) | [rwlp_connpool_config_updates.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/rwlp_connpool_config_updates.dita) |
 | Oracle RAC configuration | [twlp_oraclerac.dita](https://github.ibm.com/websphere/liberty-docs/blob/main/documentation/buildroot/en/ae/twlp_oraclerac.dita) |
+
+---
+
+## Codebase Guide
+
+For deep architectural knowledge of this domain — including key bundles, design patterns, configuration model, entry-point classes, and extension points — see [CODEBASE-GUIDE.md](CODEBASE-GUIDE.md).

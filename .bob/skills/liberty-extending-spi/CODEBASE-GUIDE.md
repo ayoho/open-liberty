@@ -327,7 +327,7 @@ The `service` attribute filters which `META-INF/services` entries to register. W
 
 | Class | Path | What to look for |
 |-------|------|------------------|
-| `MetaTypeRegistry` | `com.ibm.ws.config/src/com/ibm/ws/config/admin/internal/MetaTypeRegistry.java` | Merges metatype defaults with server.xml values; central point for config-by-exception logic |
+| `MetaTypeRegistry` | `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/MetaTypeRegistry.java` | Merges metatype defaults with server.xml values; central point for config-by-exception logic |
 | `ConfigAdminServiceFactory` | `com.ibm.ws.config/src/com/ibm/ws/config/admin/internal/ConfigAdminServiceFactory.java` | Factory for per-bundle `ConfigurationAdmin` views; manages the store of `Configuration` objects |
 | `ServerXMLConfiguration` | `com.ibm.ws.config/src/com/ibm/ws/config/xml/internal/ServerXMLConfiguration.java` | Parses `server.xml`; maps XML elements to PIDs; publishes updated `Configuration` objects |
 
